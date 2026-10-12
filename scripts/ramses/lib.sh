@@ -69,7 +69,12 @@ start_ollama() {
 
 stop_ollama() {
   if [[ -n "$OLLAMA_STARTED_PID" ]] && kill -0 "$OLLAMA_STARTED_PID" 2>/dev/null; then
-    kill "$OLLAMA_STARTED_PID" 2>/dev/null; wait "$OLLAMA_STARTED_PID" 2>/dev/null || true
+    # the model runner is a child process; stop it too so the GPU memory is released before the next start
+    local kids; kids="$(pgrep -P "$OLLAMA_STARTED_PID" 2>/dev/null || true)"
+    kill -TERM "$OLLAMA_STARTED_PID" $kids 2>/dev/null || true
+    for _ in $(seq 1 30); do kill -0 "$OLLAMA_STARTED_PID" 2>/dev/null || break; sleep 1; done
+    kill -KILL "$OLLAMA_STARTED_PID" $kids 2>/dev/null || true
+    wait "$OLLAMA_STARTED_PID" 2>/dev/null || true
     echo "[ollama] stopped own server (pid $OLLAMA_STARTED_PID)"
   fi
 }
