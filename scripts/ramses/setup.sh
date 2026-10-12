@@ -3,7 +3,17 @@
 set -euo pipefail
 source "$(dirname "$0")/lib.sh"; load_env; mkdirs; load_modules
 cd "$REPO_ROOT"
+py_ok() { "$1" -c 'import sys; sys.exit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)' 2>/dev/null; }
 if [[ ! -f "$RAMSES_VENV_DIR/bin/activate" ]]; then
+  # torch 2.3.0 wheels exist for Python 3.10-3.12 only; fall back to a user-space conda env (python 3.11) if needed.
+  if ! py_ok "$PYTHON_BIN"; then
+    echo "[setup] $PYTHON_BIN is $("$PYTHON_BIN" --version 2>&1), need 3.10-3.12"
+    CONDA_BIN="${CONDA_EXE:-$(command -v conda || true)}"
+    [[ -n "$CONDA_BIN" ]] || { echo "[setup] ERROR: set PYTHON_BIN to a Python 3.10-3.12 (module or conda)" >&2; exit 1; }
+    PYENV_DIR="$RAMSES_CACHE_DIR/py311"
+    [[ -x "$PYENV_DIR/bin/python" ]] || "$CONDA_BIN" create -y -p "$PYENV_DIR" python=3.11
+    PYTHON_BIN="$PYENV_DIR/bin/python"
+  fi
   "$PYTHON_BIN" -m venv "$RAMSES_VENV_DIR"
 fi
 activate_venv
