@@ -20,3 +20,8 @@ torch-geometric==2.6.1
 tqdm
 zstandard
 pytest
+wikipedia==1.4.0
+beautifulsoup4==4.12.3
+astunparse==1.6.3
+pandas
+pyyaml
