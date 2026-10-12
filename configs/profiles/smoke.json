@@ -32,7 +32,7 @@
   "max_routing": 4,
   "max_context": 5,
   "decay_factor": 1.0,
-  "concurrency": 4,
+  "concurrency": 8,
   "episode_timeout_s": 900,
   "llm": {
     "num_predict": 1024,

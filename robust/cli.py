@@ -106,8 +106,7 @@ def cmd_smoke(a):
     base = results_dir() / "smoke"
     get_logger(logfile=base / "run.log")
     ctx = pipeline.Ctx(p, "qwen", 0)
-    with ctx.budget.stage("smoke_checks"):
-        res = smoke.run_smoke(ctx, require_cuda=a.require_cuda)
+    res = smoke.run_smoke(ctx, require_cuda=a.require_cuda)  # technical check; not part of the compute budget
     print(json.dumps(res["checks"], indent=2, default=str))
     print("SMOKE_CHECKS_PASSED" if res["passed"] else "SMOKE_CHECKS_FAILED")
     if not res["passed"]:

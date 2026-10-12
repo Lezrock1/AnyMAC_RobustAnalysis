@@ -32,7 +32,7 @@
   "max_routing": 5,
   "max_context": 5,
   "decay_factor": 1.0,
-  "concurrency": 8,
+  "concurrency": 12,
   "episode_timeout_s": 900,
   "llm": {
     "num_predict": 768,
@@ -58,7 +58,7 @@
     "max_truncation_rate": 0.05
   },
   "ollama": {
-    "num_parallel": 8
+    "num_parallel": 12
   },
   "agent_model": "qwen",
   "experiments": {

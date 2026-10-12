@@ -2,7 +2,9 @@ from GDesigner.prompt.prompt_set_registry import PromptSetRegistry
 from GDesigner.prompt.gsm8k_prompt_set import GSM8KPromptSet
 
 ANSWER_FORMAT = (
-    "Work step by step. All arithmetic in the problem is done modulo 23, so every quantity and the final answer "
+    "Be concise: do not restate the problem, list only the equations you need, and keep your whole answer under "
+    "250 words. If a relation seems to be missing, make the most natural reading instead of debating it. "
+    "All arithmetic in the problem is done modulo 23, so every quantity and the final answer "
     "is an integer between 0 and 22. The last line of your output must contain only the final result in the form "
     "'The answer is N'."
 )
