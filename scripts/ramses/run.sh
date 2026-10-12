@@ -34,6 +34,10 @@ if command -v nvidia-smi >/dev/null; then
 fi
 rargs=(); [[ $resume -eq 1 ]] && rargs+=(--resume)
 if [[ "$profile" == "smoke" ]]; then
+  # the smoke profile always continues internally with --resume, so stale stages from an earlier code/prompt version must not survive
+  if [[ $resume -eq 0 && -d "$RESULTS_DIR/smoke" ]]; then
+    arch="$RESULTS_DIR/smoke_prev_$(date +%Y%m%d_%H%M%S)"; mv "$RESULTS_DIR/smoke" "$arch"; echo "archived previous smoke results to $arch"
+  fi
   if [[ $allow_cpu -eq 1 ]]; then python -m robust smoke; else python -m robust smoke --require-cuda; fi
   # smoke covers all experiments end-to-end on tiny samples only when requested
   [[ "$exp" == "all" ]] && python -m robust run --profile smoke --experiment all --resume
