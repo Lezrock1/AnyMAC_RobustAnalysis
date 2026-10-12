@@ -59,4 +59,4 @@ Full: Kostengewichte (Neutraining aus `warm.pth` mit anderem `decay_factor`) und
 
 ## Updatezählung und Budget
 Ein Update = ein AdamW-Schritt über einen Batch von Aufgaben (mit Gradientenakkumulation über Rollouts). Übersprungene Updates (keine Reward-Variation) werden gezählt und geloggt.
-Pilot: gemeinsames Budget (`results/pilot/budget.json`, 120 min, 15 min Auswertungsreserve); Full: unbegrenzt, fortsetzbar. Gemessene Laufzeiten stehen getrennt von `projection_NOT_MEASURED`.
+Smoke, Pilot und Full: kein hartes Zeitbudget, alle Stufen fortsetzbar (`--resume`); die Laufzeit wird nur gemessen (`results/<profil>/budget.json`). Gemessene Laufzeiten stehen getrennt von `projection_NOT_MEASURED`.

@@ -105,8 +105,8 @@
     "continue_rounds": 6
   },
   "budget": {
-    "limit_min": 120,
-    "eval_reserve_min": 15
+    "limit_min": null,
+    "eval_reserve_min": 0
   },
   "models_to_run": [
     "qwen"
