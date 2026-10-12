@@ -16,6 +16,7 @@ openai==1.46.0
 requests
 pyarrow==17.0.0
 scipy
+torch-geometric==2.6.1
 tqdm
 zstandard
 pytest
