@@ -54,6 +54,27 @@ def prepare_embedding() -> Dict:
     return {"model": pe._MODEL_NAME, "dim": len(v), "HF_HOME": os.getenv("HF_HOME")}
 
 
+def pull_via_api(tag: str) -> None:
+    """Pull through the same HTTP endpoint the pipeline uses (avoids CLI/host mismatches)."""
+    import json as _json
+    import requests
+    last = None
+    with requests.post(f"{llm.base_url()}/api/pull", json={"model": tag, "stream": True}, stream=True, timeout=(30, 600)) as r:
+        r.raise_for_status()
+        for line in r.iter_lines():
+            if not line:
+                continue
+            ev = _json.loads(line)
+            if ev.get("error"):
+                raise RuntimeError(f"ollama pull {tag} failed: {ev['error']}")
+            st = ev.get("status")
+            if st != last and not ev.get("total"):
+                log.info("pull %s: %s", tag, st)
+                last = st
+            elif ev.get("total") and ev.get("completed") is not None and int(ev["completed"]) % (256 << 20) < (4 << 20):
+                log.info("pull %s: %.0f%%", tag, 100 * ev["completed"] / ev["total"])
+
+
 def pull_models(profile: Dict, models) -> Dict:
     out = {}
     for key in models:
@@ -61,7 +82,7 @@ def pull_models(profile: Dict, models) -> Dict:
         tag = m["ollama_tag"]
         if llm.model_info(tag) is None:
             log.info("ollama pull %s", tag)
-            subprocess.run([os.getenv("OLLAMA_BIN", "ollama"), "pull", tag], check=True)
+            pull_via_api(tag)
         info = llm.model_info(tag)
         out[key] = {**m, **(info or {}), "hf_origin": m.get("hf_origin")}
     return out

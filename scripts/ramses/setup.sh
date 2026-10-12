@@ -26,10 +26,15 @@ if [[ "$os" == "Linux" ]]; then
   else python -m pip install "torch==2.3.0"; fi
 elif [[ "$os" == "Darwin" && "$arch" == "x86_64" ]]; then python -m pip install "torch==2.2.2"   # last x86_64 macOS wheel
 else python -m pip install "torch==2.3.0"; fi
-python -m pip install -r requirements-ramses.txt
+# constraint keeps pip from upgrading torch (sentence-transformers pulls an unpinned torchvision)
+if [[ "$os" == "Linux" ]]; then tv="torchvision==0.18.0"; else tv=""; fi
+printf 'torch==%s\n%s\nnumpy==1.26.4\n' "$(python -c 'import torch;print(torch.__version__.split("+")[0])')" "${tv}" > "$RAMSES_CACHE_DIR/constraints.txt"
+[[ -n "$tv" ]] && python -m pip install "$tv" -c "$RAMSES_CACHE_DIR/constraints.txt" --no-deps
+python -m pip install -r requirements-ramses.txt -c "$RAMSES_CACHE_DIR/constraints.txt"
 python - <<'PY'
 import torch, numpy
 print("torch", torch.__version__, "cuda build", torch.version.cuda, "numpy", numpy.__version__)
+assert torch.__version__.startswith(("2.3.0", "2.2.2")), "torch was changed by another package"
 PY
 # Ollama (user space)
 if [[ ! -x "$OLLAMA_BIN" ]] && ! command -v "$OLLAMA_BIN" >/dev/null 2>&1; then
