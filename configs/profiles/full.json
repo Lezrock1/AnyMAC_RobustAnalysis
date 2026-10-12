@@ -1,0 +1,126 @@
+{
+  "protocol_version": "1.0",
+  "domain": "masbench",
+  "dataset": {
+    "repo": "Salesforce/MASBench",
+    "config": "breadth",
+    "source_split": "train",
+    "revision": "f1d57e20c304c5e42fa77c1a0412de2bc7ad52a3"
+  },
+  "data_seed": 0,
+  "models": {
+    "qwen": {
+      "hf_origin": "Qwen/Qwen3-4B-Instruct-2507",
+      "ollama_tag": "qwen3:4b-instruct-2507-q8_0",
+      "quantization": "q8_0"
+    },
+    "gemma": {
+      "hf_origin": "google/gemma-3-4b-it",
+      "ollama_tag": "gemma3:4b-it-qat",
+      "quantization": "qat (int4)"
+    }
+  },
+  "roles": [
+    "Math Solver",
+    "Mathematical Analyst",
+    "Quantitative Reasoner",
+    "Inspector"
+  ],
+  "controlled_role": "Mathematical Analyst",
+  "verifier_role": "Inspector",
+  "control_extra_role": "Math Solver",
+  "max_routing": 5,
+  "max_context": 5,
+  "decay_factor": 1.0,
+  "concurrency": 12,
+  "episode_timeout_s": 900,
+  "llm": {
+    "num_predict": 768,
+    "num_ctx": 4096,
+    "candidates": [
+      {
+        "num_predict": 512,
+        "num_ctx": 4096
+      },
+      {
+        "num_predict": 768,
+        "num_ctx": 4096
+      },
+      {
+        "num_predict": 1024,
+        "num_ctx": 6144
+      },
+      {
+        "num_predict": 1536,
+        "num_ctx": 8192
+      }
+    ],
+    "max_truncation_rate": 0.05
+  },
+  "ollama": {
+    "num_parallel": 12
+  },
+  "agent_model": "qwen",
+  "experiments": {
+    "exp2": {
+      "max_cases": 100,
+      "diagnostic_if_no_cases": true
+    },
+    "exp4": {
+      "routers": [
+        "A",
+        "B",
+        "C"
+      ],
+      "cost_weights": [
+        0.9,
+        1.0
+      ]
+    }
+  },
+  "bootstrap": {
+    "n_boot": 10000,
+    "seed": 0
+  },
+  "name": "full",
+  "split_sizes": {
+    "warmup": 400,
+    "branch": 1000,
+    "dev": 40,
+    "eval": 300,
+    "continue": 500,
+    "new_eval": 300
+  },
+  "train_seeds": [
+    0,
+    1,
+    2
+  ],
+  "warmup": {
+    "rounds": 25
+  },
+  "training": {
+    "lr": 5e-05,
+    "tasks_per_round": 16,
+    "traces_per_task": 4,
+    "steps_per_round": 4,
+    "batch_size": 16,
+    "grad_clip": 1.0,
+    "branch_rounds": 60,
+    "continue_rounds": 30
+  },
+  "budget": {
+    "limit_min": null,
+    "eval_reserve_min": 0
+  },
+  "models_to_run": [
+    "qwen",
+    "gemma"
+  ],
+  "signal_check": {
+    "enforce": true,
+    "min_task_fraction_with_variation": 0.25,
+    "min_accuracy": 0.1,
+    "max_accuracy": 0.9
+  }
+}

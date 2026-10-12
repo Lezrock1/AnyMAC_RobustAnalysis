@@ -1,0 +1,98 @@
+{
+  "protocol_version": "1.0",
+  "domain": "masbench",
+  "dataset": {
+    "repo": "Salesforce/MASBench",
+    "config": "breadth",
+    "source_split": "train",
+    "revision": "f1d57e20c304c5e42fa77c1a0412de2bc7ad52a3"
+  },
+  "data_seed": 0,
+  "models": {
+    "qwen": {
+      "hf_origin": "Qwen/Qwen3-4B-Instruct-2507",
+      "ollama_tag": "qwen3:4b-instruct-2507-q8_0",
+      "quantization": "q8_0"
+    },
+    "gemma": {
+      "hf_origin": "google/gemma-3-4b-it",
+      "ollama_tag": "gemma3:4b-it-qat",
+      "quantization": "qat (int4)"
+    }
+  },
+  "roles": [
+    "Math Solver",
+    "Mathematical Analyst",
+    "Quantitative Reasoner",
+    "Inspector"
+  ],
+  "controlled_role": "Mathematical Analyst",
+  "verifier_role": "Inspector",
+  "control_extra_role": "Math Solver",
+  "max_routing": 4,
+  "max_context": 5,
+  "decay_factor": 1.0,
+  "concurrency": 4,
+  "episode_timeout_s": 900,
+  "llm": {
+    "num_predict": 1024,
+    "num_ctx": 6144
+  },
+  "ollama": {
+    "num_parallel": 8
+  },
+  "agent_model": "qwen",
+  "experiments": {
+    "exp2": {
+      "max_cases": 3,
+      "diagnostic_if_no_cases": true
+    },
+    "exp4": {
+      "routers": [
+        "B"
+      ],
+      "cost_weights": [
+        1.0
+      ]
+    }
+  },
+  "bootstrap": {
+    "n_boot": 1000,
+    "seed": 0
+  },
+  "name": "smoke",
+  "split_sizes": {
+    "warmup": 8,
+    "branch": 8,
+    "dev": 4,
+    "eval": 6,
+    "continue": 8,
+    "new_eval": 0
+  },
+  "train_seeds": [
+    0
+  ],
+  "warmup": {
+    "rounds": 1
+  },
+  "training": {
+    "lr": 0.0001,
+    "tasks_per_round": 4,
+    "traces_per_task": 4,
+    "steps_per_round": 1,
+    "batch_size": 4,
+    "grad_clip": 1.0,
+    "branch_rounds": 1,
+    "continue_rounds": 1
+  },
+  "budget": {
+    "limit_min": 15,
+    "eval_reserve_min": 2
+  },
+  "models_to_run": [
+    "qwen"
+  ],
+  "smoke": {
+    "pool_size": 48
+  }
+}

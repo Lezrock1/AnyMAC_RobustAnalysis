@@ -6,6 +6,8 @@ import torch
 import asyncio
 import torch.nn.functional as F
 import copy
+import time
+from GDesigner.llm import usage as llm_usage
 
 from GDesigner.graph.node import Node
 from GDesigner.agents.agent_registry import AgentRegistry
@@ -454,7 +456,7 @@ class Graph(ABC):
         return self.spatial_masks, self.temporal_masks
 
     def run_next_agent_prediction(self, input: Dict[str, str], max_routing=10, temperature=1.0,
-                               available_roles:List[str] = None, training=False, agent_group_type="MathSolver", max_context = 5):
+                               available_roles:List[str] = None, training=False, agent_group_type="MathSolver", max_context = 5, controller=None):
         """
         Synchronous version of arun_next_agent_prediction that runs the async function in an event loop.
         
@@ -484,7 +486,8 @@ class Graph(ABC):
                         temperature=temperature,
                         available_roles=available_roles,
                         agent_group_type=agent_group_type,
-                        max_context=max_context
+                        max_context=max_context,
+                        controller=controller
                     ),
                     timeout=timeout  
                 )
@@ -496,7 +499,7 @@ class Graph(ABC):
             loop.close()
 
     async def arun_next_agent_prediction(self, input: Dict[str, str], max_routing=10, temperature=1.0,
-                                         available_roles:List[str] = None, agent_group_type="MathSolver", max_context = 5):
+                                         available_roles:List[str] = None, agent_group_type="MathSolver", max_context = 5, controller=None):
         """
         Predicts the next agent to execute using a routing transformer, and finish a trace of the routing process.
         
@@ -505,9 +508,11 @@ class Graph(ABC):
             max_routing: Maximum number of routing steps
             temperature: Temperature for Gumbel-Softmax sampling
             available_roles: List of available agent roles to choose from
+            controller: Optional experiment hook object (see robust/control.py). With
+                controller=None the behaviour is identical to the original implementation.
             
         Returns:
-            Dict containing final answers and routing results
+            Dict containing final answers, routing results and (always) per-step trace events
         """
         # Extract task query
         self.to_device(torch.device("cuda" if torch.cuda.is_available() else "cpu"))
@@ -574,6 +579,7 @@ class Graph(ABC):
         }
         routing_count = 0
         final_answers = []
+        trace_events = []
         
         # History states for tracking outputs and embeddings
         history_states = []
@@ -653,6 +659,13 @@ class Graph(ABC):
                 chosen_agent_idx = torch.argmax(agent_probabilities).item()
                 chosen_role = idx_to_role[chosen_agent_idx] # Direct mapping using 0-based index
             
+            sampled_role = chosen_role
+            if controller is not None:
+                forced_role = controller.forced_role(routing_count, chosen_role)
+                if forced_role is not None and forced_role != chosen_role:
+                    chosen_role = forced_role
+                    chosen_agent_idx = role_to_idx[chosen_role]
+
             # Hint prediction (only if we have history)
             hint_mask = []
             if len(history_states) > 0:
@@ -683,6 +696,26 @@ class Graph(ABC):
                 routing_results["hint_selections"].append(hint_mask.tolist())
                 routing_results["hint_logits"].append(hint_similarity_scores.tolist())
             
+            sampled_mask = hint_mask.tolist() if len(hint_mask) > 0 else []
+            if controller is not None and len(history_states) > 0:
+                forced_mask = controller.forced_hint_mask(routing_count, len(history_states))
+                if forced_mask is not None:
+                    hint_mask = torch.tensor(forced_mask, dtype=torch.int)
+                if chosen_role == self.decision_method:
+                    adjusted = controller.adjust_decision_mask(
+                        hint_mask.tolist(), [h["role"] for h in history_states], [h["output"] for h in history_states])
+                    hint_mask = torch.tensor(adjusted, dtype=torch.int)
+            usage_mark = llm_usage.mark()
+            step_t0 = time.time()
+            event = {
+                "step": routing_count, "role": chosen_role, "sampled_role": sampled_role,
+                "sampled_mask": sampled_mask,
+                "delivered_mask": hint_mask.tolist() if len(hint_mask) > 0 else [],
+                "delivered_roles": [history_states[i]["role"] for i in range(len(hint_mask)) if hint_mask[i] == 1],
+                "is_decision": chosen_role == self.decision_method,
+                "intercepted": False, "replayed": False, "extra_calls": [],
+            }
+
             # Construct hints based on the mask
             hints = ""
             if len(hint_mask) > 0 and sum(hint_mask) > 0:
@@ -707,9 +740,24 @@ class Graph(ABC):
                 
                 # Create and execute the agent node
                 # import ipdb; ipdb.set_trace()
-                agent_node = AgentRegistry.get(agent_group_type, **{"domain": self.domain, "llm_name": self.llm_name, "role": chosen_role})
-                await agent_node.async_execute_with_hints(agent_input)
-                agent_output = agent_node.outputs[-1] if agent_node.outputs else "No output produced"
+                replayed = controller.replay_output(routing_count, chosen_role) if controller is not None else None
+                intercepted = None
+                if replayed is None and controller is not None:
+                    intercepted = controller.intercept(routing_count, chosen_role, agent_input)
+                if replayed is not None:
+                    agent_output = replayed
+                    event["replayed"] = True
+                elif intercepted is not None:
+                    agent_output = intercepted
+                    event["intercepted"] = True
+                else:
+                    agent_node = AgentRegistry.get(agent_group_type, **{"domain": self.domain, "llm_name": self.llm_name, "role": chosen_role})
+                    await agent_node.async_execute_with_hints(agent_input)
+                    agent_output = agent_node.outputs[-1] if agent_node.outputs else "No output produced"
+                event["output"] = agent_output
+                event["usage"] = llm_usage.since(usage_mark)
+                event["latency_s"] = time.time() - step_t0
+                trace_events.append(event)
                 
                 
                 # Create embedding for this output
@@ -734,6 +782,30 @@ class Graph(ABC):
                 routing_results["agent_logits"].append(agent_similarity_scores.tolist())
             else:
                 # If decision maker is chosen, use it as final answer and break
+                if controller is not None:
+                    for call in controller.pre_decision_calls([h["role"] for h in history_states]):
+                        extra_mark = llm_usage.mark()
+                        extra_input = input.copy()
+                        extra_input["hints"] = hints
+                        if call.get("see_all"):
+                            # mandatory checks see every earlier output, independent of the router's context choice
+                            extra_input["hints"] = "".join(
+                                f"\nAgent {j+1}: {h['output']} \n" for j, h in enumerate(history_states))
+                        extra_output = controller.intercept(routing_count, call["role"], extra_input)
+                        extra_intercepted = extra_output is not None
+                        if extra_output is None:
+                            extra_node = AgentRegistry.get(agent_group_type, **{"domain": self.domain, "llm_name": self.llm_name, "role": call["role"]})
+                            await extra_node.async_execute_with_hints(extra_input)
+                            extra_output = extra_node.outputs[-1] if extra_node.outputs else "No output produced"
+                        event["extra_calls"].append({
+                            "role": call["role"], "kind": call.get("kind"), "output": extra_output,
+                            "delivered": bool(call.get("deliver", True)), "intercepted": extra_intercepted,
+                            "context_in": extra_input["hints"], "usage": llm_usage.since(extra_mark)})
+                        if call.get("deliver", True):
+                            n_delivered = int(sum(1 for i in range(len(hint_mask)) if hint_mask[i] == 1)) + sum(
+                                1 for c in event["extra_calls"][:-1] if c["delivered"])
+                            hints += f"\nAgent {n_delivered+1}: {extra_output} \n"
+                            event["delivered_roles"].append(call["role"])
                 decision_input = input.copy()
                 if hints:
                     decision_input["hints"] = hints
@@ -743,6 +815,11 @@ class Graph(ABC):
                 final_answers = decision_node.outputs
                 if not final_answers:
                     final_answers = ["No final answer produced by decision maker"]
+                event["output"] = final_answers[-1]
+                event["usage"] = llm_usage.since(usage_mark)
+                event["latency_s"] = time.time() - step_t0
+                event["decision_context"] = hints
+                trace_events.append(event)
                 
                 # Store in routing results
                 if final_answers:
@@ -765,7 +842,8 @@ class Graph(ABC):
         return {
             "answers": final_answers,
             "routing_results": routing_results,
-            "routing_count": routing_count
+            "routing_count": routing_count,
+            "trace_events": trace_events
         }
 
     def run_next_agent_prediction_grad(self, gradient_input, sparse_context=0.0):
@@ -942,7 +1020,7 @@ class Graph(ABC):
                     # import ipdb; ipdb.set_trace()
             except RuntimeError as e:
                 print(f"ERROR during backward: {e}")
-                import ipdb; ipdb.set_trace() # Re-enter debugger if backward fails
+                raise  # never block a batch job in an interactive debugger
 
             # Add to total loss (for monitoring only, not used for gradients)
             # total_loss += step_loss.item() # Use .item() to detach before summing

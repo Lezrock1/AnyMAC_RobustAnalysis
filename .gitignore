@@ -1,0 +1,12 @@
+configs/ramses.env
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+results/
+data/
+cache/
+logs/
+*.pth
+*.opt
+*.log

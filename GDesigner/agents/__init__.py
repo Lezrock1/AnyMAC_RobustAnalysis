@@ -4,6 +4,7 @@ from GDesigner.agents.math_solver import MathSolver
 from GDesigner.agents.adversarial_agent import AdverarialAgent
 from GDesigner.agents.final_decision import FinalRefer,FinalDirect,FinalWriteCode,FinalMajorVote
 from GDesigner.agents.math_solver2 import MathSolver2
+from GDesigner.agents.mas_agents import MASAgent, MASFinal
 from GDesigner.agents.agent_registry import AgentRegistry
 
 __all__ =  ['AnalyzeAgent',
@@ -16,4 +17,6 @@ __all__ =  ['AnalyzeAgent',
             'FinalMajorVote',
             'AgentRegistry',
             'MathSolver2',
+            'MASAgent',
+            'MASFinal',
            ]

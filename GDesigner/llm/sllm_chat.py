@@ -4,11 +4,13 @@ from tenacity import retry, wait_random_exponential, stop_after_attempt
 from typing import Dict, Any
 from dotenv import load_dotenv
 import os
+import time
 
 from GDesigner.llm.format import Message
 from GDesigner.llm.price import cost_count
 from GDesigner.llm.llm import LLM
 from GDesigner.llm.llm_registry import LLMRegistry
+from GDesigner.llm import usage
 
 
 OPENAI_API_KEYS = ['']
@@ -43,12 +45,21 @@ async def achat(model: str, msg: List[Dict]):
         }
 
     }
+    # Optional generation limits (unset = original behaviour: no limit)
+    if os.getenv('LLM_NUM_PREDICT'):
+        data["options"]["num_predict"] = int(os.getenv('LLM_NUM_PREDICT'))
+    if os.getenv('LLM_NUM_CTX'):
+        data["options"]["num_ctx"] = int(os.getenv('LLM_NUM_CTX'))
+    if os.getenv('LLM_KEEP_ALIVE'):
+        data["keep_alive"] = os.getenv('LLM_KEEP_ALIVE')
     # write promt to a file called prompt.txt if exist using append mode
     # with open('prompt.txt', 'a') as f:
     #     f.write(prompt)
     #     f.flush()
 
-    async with aiohttp.ClientSession() as session:
+    t0 = time.time()
+    timeout = aiohttp.ClientTimeout(total=float(os.getenv('LLM_REQUEST_TIMEOUT', '1200')))
+    async with aiohttp.ClientSession(timeout=timeout) as session:
         async with session.post(request_url, headers=headers, json=data) as response:
             if response.status != 200:
                 error_text = await response.text()
@@ -56,7 +67,17 @@ async def achat(model: str, msg: List[Dict]):
 
             response_data = await response.json()
             completion = response_data.get('response', '')
-            cost_count(prompt, completion, model)
+            try:
+                cost_count(prompt, completion, model)
+            except Exception:  # tiktoken may need network access; real token counts come from the backend
+                pass
+            usage.record({
+                "model": model,
+                "prompt_tokens": response_data.get('prompt_eval_count', 0) or 0,
+                "completion_tokens": response_data.get('eval_count', 0) or 0,
+                "latency_s": time.time() - t0,
+                "truncated": response_data.get('done_reason') == 'length',
+            })
             # # 儲存response（optional）
             # with open('response.txt', 'a') as f:
             #     f.write(completion + "\n\n")
