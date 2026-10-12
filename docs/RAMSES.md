@@ -12,7 +12,7 @@ scripts/ramses/doctor.sh                           # Werte prüfen (Slurm, GPU, 
 scripts/ramses/setup.sh                            # venv + torch 2.3.0 + Ollama (User-Space)
 scripts/ramses/prepare.sh --profile pilot          # Modell + MASBench breadth (mit Internet, Login-Knoten)
 scripts/ramses/submit.sh --profile smoke --experiment all --dry-run
-scripts/ramses/submit.sh --profile smoke --experiment all    # echter Smoke (<=15 min)
+scripts/ramses/submit.sh --profile smoke --experiment all    # echter Smoke (kein hartes Zeitbudget)
 scripts/ramses/submit.sh --profile pilot --experiment all    # nur wenn Smoke bestanden
 scripts/ramses/submit.sh --profile full  --experiment all    # >=3 Seeds, ohne Zeitlimit
 scripts/ramses/submit.sh --profile full  --experiment all --resume   # nach Abbruch/Timeout
