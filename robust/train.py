@@ -230,5 +230,8 @@ def train_branch(trainer: Trainer, branch: str, tasks: List[Task], markers: Dict
         append_jsonl(outdir / "train_episodes.jsonl", [strip_raw(e) for e in eps])
         trainer.save(outdir / f"round_{r + 1:04d}.pth")
         write_json(prog_path, {"rounds_done": r + 1})
+        if not tcfg.get("keep_all_checkpoints"):  # resume only needs the latest round; older ones cost ~1.2 GB each
+            for old in outdir.glob(f"round_{r:04d}.pth*"):
+                old.unlink()
         log.info("[%s] round %d/%d acc=%.2f manip=%d/%d wall=%.0fs", tag, r + 1, n_rounds, summary["accuracy"], manip, calls, summary["wall_s"])
     return {"completed": True, "rounds_done": n_rounds}
