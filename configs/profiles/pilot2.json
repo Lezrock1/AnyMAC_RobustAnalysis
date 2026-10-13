@@ -1,0 +1,117 @@
+{
+  "protocol_version": "1.0",
+  "domain": "masbench",
+  "dataset": {
+    "repo": "Salesforce/MASBench",
+    "config": "breadth",
+    "source_split": "train",
+    "revision": "f1d57e20c304c5e42fa77c1a0412de2bc7ad52a3"
+  },
+  "data_seed": 0,
+  "models": {
+    "qwen30": {
+      "hf_origin": "Qwen/Qwen3-30B-A3B-Instruct-2507",
+      "ollama_tag": "qwen3:30b-a3b-instruct-2507-q4_K_M",
+      "quantization": "q4_K_M"
+    }
+  },
+  "roles": [
+    "Math Solver",
+    "Mathematical Analyst",
+    "Quantitative Reasoner",
+    "Inspector"
+  ],
+  "controlled_role": "Mathematical Analyst",
+  "verifier_role": "Inspector",
+  "control_extra_role": "Math Solver",
+  "max_routing": 5,
+  "max_context": 5,
+  "decay_factor": 1.0,
+  "concurrency": 4,
+  "episode_timeout_s": 900,
+  "llm": {
+    "num_predict": 768,
+    "num_ctx": 4096,
+    "candidates": [
+      {
+        "num_predict": 512,
+        "num_ctx": 4096
+      },
+      {
+        "num_predict": 768,
+        "num_ctx": 4096
+      },
+      {
+        "num_predict": 1024,
+        "num_ctx": 6144
+      },
+      {
+        "num_predict": 1536,
+        "num_ctx": 8192
+      }
+    ],
+    "max_truncation_rate": 0.05
+  },
+  "ollama": {
+    "num_parallel": 4,
+    "flash_attention": true,
+    "kv_cache_type": "q8_0"
+  },
+  "agent_model": "qwen30",
+  "experiments": {
+    "exp2": {
+      "max_cases": 30,
+      "diagnostic_if_no_cases": true
+    },
+    "exp4": {
+      "routers": [
+        "B"
+      ],
+      "cost_weights": [
+        1.0
+      ]
+    }
+  },
+  "bootstrap": {
+    "n_boot": 10000,
+    "seed": 0
+  },
+  "name": "pilot2",
+  "split_sizes": {
+    "warmup": 64,
+    "branch": 160,
+    "dev": 24,
+    "eval": 40,
+    "continue": 96,
+    "new_eval": 0
+  },
+  "train_seeds": [
+    0
+  ],
+  "warmup": {
+    "rounds": 6
+  },
+  "training": {
+    "lr": 0.0001,
+    "tasks_per_round": 8,
+    "traces_per_task": 4,
+    "steps_per_round": 2,
+    "batch_size": 8,
+    "grad_clip": 1.0,
+    "branch_rounds": 12,
+    "continue_rounds": 6
+  },
+  "budget": {
+    "limit_min": null,
+    "eval_reserve_min": 0
+  },
+  "models_to_run": [
+    "qwen30"
+  ],
+  "signal_check": {
+    "enforce": true,
+    "min_task_fraction_with_variation": 0.25,
+    "min_accuracy": 0.1,
+    "max_accuracy": 0.9
+  }
+}

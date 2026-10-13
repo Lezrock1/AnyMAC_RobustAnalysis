@@ -25,6 +25,7 @@ print("torch cuda device:", torch.cuda.get_device_name(0))
 PY
 fi
 export OLLAMA_NUM_PARALLEL="$(python -m robust profile-get "$profile" ollama.num_parallel)"
+if [[ "$(python -m robust profile-get "$profile" ollama.flash_attention 2>/dev/null || true)" == "True" ]]; then export OLLAMA_FLASH_ATTENTION=1; export OLLAMA_KV_CACHE_TYPE="$(python -m robust profile-get "$profile" ollama.kv_cache_type)"; fi
 start_ollama; trap stop_ollama EXIT
 # GPU-use monitor: samples utilisation/memory into the log directory
 mon="$RAMSES_LOG_DIR/gpu_${SLURM_JOB_ID:-local}.csv"

@@ -33,7 +33,7 @@ def cmd_prepare(a):
     from robust import prepare
     p = load_profile(a.profile)
     out = results_dir() / p["name"] / "manifest.json"
-    man = prepare.run(p, out, with_models=not a.no_models, models=p["models_to_run"] if a.all_models else ["qwen"], with_embedding=not a.no_embedding)
+    man = prepare.run(p, out, with_models=not a.no_models, models=p["models_to_run"] if a.all_models else p["models_to_run"][:1], with_embedding=not a.no_embedding)
     man["git"] = git_info()
     write_json(out, man)
     print(json.dumps(man, indent=2)[:3000])
