@@ -18,6 +18,7 @@ load_env() {
   : "${RAMSES_VENV_DIR:=$REPO_ROOT/.venv}"
   : "${PYTHON_BIN:=python3}"
   : "${OLLAMA_PORT:=11434}"
+  [[ -n "${OLLAMA_PORT_OVERRIDE:-}" ]] && OLLAMA_PORT="$OLLAMA_PORT_OVERRIDE"  # second run on the same node
   : "${OLLAMA_BIN:=$RAMSES_CACHE_DIR/ollama/bin/ollama}"
   export RESULTS_DIR="$RAMSES_RESULTS_DIR" DATA_DIR="$RAMSES_DATA_DIR"
   export HF_HOME="$RAMSES_CACHE_DIR/hf" OLLAMA_MODELS="$RAMSES_CACHE_DIR/ollama/models"
