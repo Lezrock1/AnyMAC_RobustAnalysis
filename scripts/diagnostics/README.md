@@ -51,3 +51,49 @@ Local validation (standard library only):
 python -m unittest discover -s scripts/diagnostics -p 'test_diagnose.py' -v
 bash -n scripts/diagnostics/run.sh
 ```
+
+## Extended 24-hour allocation
+
+```bash
+bash scripts/diagnostics/run.sh --extended
+```
+
+This creates an **extended** result folder and uses a 22-hour request deadline
+inside a separately requested 24-hour GPU allocation. Existing diagnostics are
+not overwritten. Only the already installed 4B model is used; no downloads or
+requests to the running 30B server are made.
+
+The fixed design is ten dev tasks, three repeats, two prompt formats, two token
+limits, three conditions (one slot/serial, twelve slots/serial, twelve
+slots/three parallel requests), and three fresh-server blocks: **1,080 requests**.
+Server order alternates 1-12 / 12-1 / 1-12; serial/parallel order alternates in
+the twelve-slot blocks. Task/format/limit groups are deterministically shuffled
+per block, identically across conditions. This reduces, but does not eliminate,
+order/cache confounding. Budget exhaustion may leave a partial matrix; there is
+no guarantee all requests fit in 22 hours.
+
+The runner stores backend duration counters, wall times, request deadlines,
+strict answers and complete raw replies. Errors are explicit, not retried.
+Client timeouts have a 1,200-second limit (capped by the remaining budget).
+After a timeout the current server part ends so that uncancelled backend
+generation cannot contaminate later requests on that server. Subsequent blocks
+start fresh. `REPORT.txt` distinguishes regular and budget-limited timeouts,
+complete task repeats, and same-task/repeat differences across server starts.
+Metadata captures model digests and Ollama versions; model changes abort the run.
+This is still exploratory, not a controlled cache ablation or a power study.
+
+Read-only audits compare the real pipeline parser against strict final-line
+parsing and store up to four deterministically chosen disagreement texts per
+evaluation file in `parser_samples.json` for manual review. Neither parser is
+declared the semantic ground truth. No old answers or rewards are rewritten.
+
+The synthetic gradient probe compares original code, corrected token indices,
+and corrected indices plus inclusion of an **early non-forced decision** in the
+gradient loop, only in memory. A positive gradient difference validates this
+synthetic path, not a production patch: forced stopping, masked actions,
+single-step traces and policy-gradient correctness need separate regression
+tests before any real retraining.
+
+```bash
+python -m unittest discover -s scripts/diagnostics -p 'test_*.py' -v
+```

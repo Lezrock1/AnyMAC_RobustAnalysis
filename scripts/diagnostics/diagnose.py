@@ -118,7 +118,7 @@ def data_audit(root):
             "warning": "timeout traces are absent in the current pipeline; zero calls excludes no timed-out activity"}
 
 
-def gradient_probe(path):
+def gradient_probe(path, variant="original"):
     """Execute the existing gradient method with synthetic embeddings and transformer."""
     try:
         import torch
@@ -128,6 +128,22 @@ def gradient_probe(path):
     tree = ast.parse(path.read_text(encoding="utf-8"))
     method = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef)
                   and n.name == "arun_next_agent_prediction_grad")
+    if variant not in ("original", "indices", "indices_and_early_decision"):
+        raise ValueError(f"Unknown synthetic variant: {variant}")
+    if variant != "original":
+        for node in ast.walk(method):
+            if (isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name)
+                    and node.value.id == "encoded_tokens" and isinstance(node.slice, ast.Slice)
+                    and isinstance(node.slice.lower, ast.Constant) and node.slice.lower.value == 0):
+                node.slice.lower = ast.Constant(1)
+                node.slice.upper = ast.BinOp(ast.Name("num_roles", ast.Load()), ast.Add(), ast.Constant(1))
+            if (isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "hint_offset"
+                                                     for t in node.targets)):
+                node.value = ast.BinOp(ast.Name("num_roles", ast.Load()), ast.Add(), ast.Constant(1))
+            if (variant == "indices_and_early_decision" and isinstance(node, ast.For)
+                    and isinstance(node.target, ast.Name) and node.target.id == "step_idx"):
+                node.iter = ast.Call(ast.Name("range", ast.Load()),
+                                     [ast.Name("trace_length", ast.Load())], [])
     module = ast.fix_missing_locations(ast.Module(body=[method], type_ignores=[]))
     namespace = {"torch": torch, "F": functional,
                  "get_sentence_embedding": lambda text: [0.01 * (i % 17) for i in range(384)]}
@@ -170,9 +186,11 @@ def gradient_probe(path):
     delta = lambda other: sum(float((baseline[k] - other[k]).abs().sum()) for k in baseline)
     return {
         "status": "MEASURED_SYNTHETIC",
+        "variant": variant,
         "nonfinal_mask_gradient_abs_difference": delta(nonfinal),
         "decision_mask_gradient_abs_difference": delta(final),
-        "scope": "actual existing gradient method; synthetic transformer/embeddings, no research checkpoint",
+        "scope": ("source method with isolated in-memory variant; synthetic transformer/embeddings; "
+                  "early non-forced decision only; not a validated production fix"),
     }
 
 
