@@ -25,6 +25,11 @@ Teiluntersuchungen fuer geeignete lernende Router, nicht die gemeinsame Hauptfra
   einer angeforderten vollstaendigen Karte. Partitionslimit ist keine Garantie
   fuer bewilligte Laufzeit. Drei Knoten bedeuten nicht automatisch drei gemeinsam
   nutzbare GPUs.
+- Nutzungsregel (Nutzer, 2026-10-19): A30-Stunden ohne Kontingentgrenze nutzbar.
+  H100 nur sehr effizient: kurze, vorab geplante Jobs mit klarer Frage, die auf
+  A30 nicht beantwortbar sind (z. B. Modelle/Quantisierungen ueber 24 GB VRAM);
+  kein Leerlauf, keine interaktiven Sitzungen, keine Hauptserien. Daraus folgt:
+  Hauptmodell und alle Wiederholungsserien muessen auf A30 laufen.
 - Kein Anlass fuer unbeschraenkte Sweeps: Jede Erweiterung braucht eine konkrete
   Hypothese, Funktionspruefung und Kostenmessung.
 
