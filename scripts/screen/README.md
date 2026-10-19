@@ -49,3 +49,8 @@ fewer GPUs (e.g. `gpu:a30:2`) also work, just slower. Logs: `results/screen/logs
 Rerunning `all` resumes recorded episodes. A manifest mismatch (code, model digest, limits) refuses
 to mix results; use a new output directory. Report any time: `bash scripts/screen/run.sh report`
 (incomplete models are marked). Single model: `bash scripts/screen/run.sh run gemma4:26b-a4b-it-qat`.
+
+### Storage quota
+Models need ~70 GB. If the home quota is exceeded: `bash scripts/screen/run.sh dedupe` replaces
+blobs already present in the confirm store (`cache/ollama/models`) by hardlinks (counted once).
+Otherwise set `SCREEN_MODELS_DIR=/projects/<group>/...` (any filesystem) for **all** screen modes.

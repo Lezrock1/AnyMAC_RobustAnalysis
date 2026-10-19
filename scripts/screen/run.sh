@@ -1,18 +1,20 @@
 #!/usr/bin/env bash
 # Model x benchmark screening on A30. Separate, pinned Ollama + model store: never touches the
 # installation used by running confirmation jobs.
-#   install | prepare | pull [MODEL...] | run MODEL | all | report
+#   install | prepare | pull [MODEL...] | dedupe | run MODEL | all | report
+# SCREEN_MODELS_DIR overrides the screen model store (default: $RAMSES_CACHE_DIR/ollama-screen-models).
 # `all` (inside one interactive A30 allocation): one worker per visible GPU, models distributed
 # round-robin and run sequentially per GPU, separate Ollama port and log directory per GPU.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 mode="${1:-}"; shift || true
-case "$mode" in install|prepare|pull|run|all|report) ;; *) echo "usage: run.sh install|prepare|pull|run MODEL|all|report" >&2; exit 2;; esac
+case "$mode" in install|prepare|pull|dedupe|run|all|report) ;; *) echo "usage: run.sh install|prepare|pull|dedupe|run MODEL|all|report" >&2; exit 2;; esac
 source scripts/ramses/lib.sh
 load_env; load_modules; activate_venv
 SCREEN_OLLAMA_VERSION=0.40.6
 dest="$RAMSES_CACHE_DIR/ollama-screen-$SCREEN_OLLAMA_VERSION"
-export OLLAMA_BIN="$dest/bin/ollama" OLLAMA_MODELS="$RAMSES_CACHE_DIR/ollama-screen-models"
+# SCREEN_MODELS_DIR may point to another filesystem (e.g. /projects) when the home quota is tight.
+export OLLAMA_BIN="$dest/bin/ollama" OLLAMA_MODELS="${SCREEN_MODELS_DIR:-$RAMSES_CACHE_DIR/ollama-screen-models}"
 export OLLAMA_PORT="${SCREEN_PORT:-11440}"
 export BASE_URL="http://127.0.0.1:$OLLAMA_PORT"
 # The ollama CLI (pull/show/list) finds the server only via OLLAMA_HOST; default would be 11434.
@@ -75,13 +77,32 @@ if [[ "$mode" == all ]]; then
 fi
 if server_up; then echo "Port $OLLAMA_PORT occupied; set SCREEN_PORT" >&2; exit 1; fi
 export OLLAMA_NUM_PARALLEL=1 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_MAX_LOADED_MODELS=1
+# Blobs are content-addressed (file name = sha256), so a blob also present in the confirm store
+# can be replaced by a hardlink: identical bytes, counted once by the quota. Same filesystem only.
+dedupe_blobs() {
+  local src="$RAMSES_CACHE_DIR/ollama/models/blobs" b t n=0
+  [[ -d "$src" && -d "$OLLAMA_MODELS/blobs" ]] || return 0
+  for t in "$OLLAMA_MODELS"/blobs/sha256-*; do
+    [[ "$t" == *-partial ]] && continue
+    b="$src/$(basename "$t")"
+    [[ -f "$b" && ! "$t" -ef "$b" ]] || continue
+    [[ "$(stat -c %s "$t")" == "$(stat -c %s "$b")" ]] || continue
+    ln -f "$b" "$t" 2>/dev/null && n=$((n+1))
+  done
+  echo "[dedupe] hardlinked $n blob(s) from $src"
+}
+
+if [[ "$mode" == dedupe ]]; then dedupe_blobs; du -sh "$OLLAMA_MODELS"; exit 0; fi
+
 if [[ "$mode" == pull ]]; then
   # Login node: downloads only, no model is loaded. Jobs never download.
   export CUDA_VISIBLE_DEVICES=""
   start_ollama; trap stop_ollama EXIT
   if (( $# )); then list=("$@"); else list=("${MODELS[@]}"); fi
   for m in "${list[@]}"; do "$OLLAMA_BIN" pull "$m"; done
+  dedupe_blobs
   "$OLLAMA_BIN" list
+  du -sh "$OLLAMA_MODELS"
   exit 0
 fi
 
