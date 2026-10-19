@@ -40,7 +40,7 @@ bash scripts/screen/run.sh install      # login node: pinned Ollama 0.40.6 into 
 bash scripts/screen/run.sh prepare      # login node: download pinned data, freeze sample
 bash scripts/screen/run.sh pull         # login node: ~70 GB models, no GPU, no model load
 tmux new -s screen                      # survives SSH disconnects
-srun -p interactive --gres=gpu:a30:4 --cpus-per-task=16 --mem=128G --time=48:00:00 --pty /bin/bash
+srun -p interactive --gres=gpu:a30:1 --cpus-per-task=8 --mem=128G --time=48:00:00 --pty /bin/bash
 cd ~/AnyMAC_RobustAnalysis && bash scripts/screen/run.sh all
 ```
 
@@ -50,7 +50,10 @@ Rerunning `all` resumes recorded episodes. A manifest mismatch (code, model dige
 to mix results; use a new output directory. Report any time: `bash scripts/screen/run.sh report`
 (incomplete models are marked). Single model: `bash scripts/screen/run.sh run gemma4:26b-a4b-it-qat`.
 
-### Storage quota
-Models need ~70 GB. If the home quota is exceeded: `bash scripts/screen/run.sh dedupe` replaces
-blobs already present in the confirm store (`cache/ollama/models`) by hardlinks (counted once).
-Otherwise set `SCREEN_MODELS_DIR=/projects/<group>/...` (any filesystem) for **all** screen modes.
+### Storage quota (just-in-time models)
+Home quota (~100 GB) cannot hold all models. `run` pulls a missing model itself and, in `all` mode
+(`SCREEN_EVICT=1` by default), removes it after its run; models sharing blobs with the confirm
+store (hardlinks, see `run.sh dedupe`) are kept. Hence **one A30** (`gpu:a30:1`): models run
+sequentially and at most one non-anchor model is on disk. Several GPUs would hold several models at
+once and can exceed the quota. A re-pull with a changed digest makes the run refuse to resume
+(manifest), so versions are never mixed. `SCREEN_MODELS_DIR` moves the store to another filesystem.

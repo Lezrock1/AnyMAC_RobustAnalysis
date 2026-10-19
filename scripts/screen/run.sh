@@ -59,7 +59,7 @@ if [[ "$mode" == all ]]; then
   pids=()
   for g in "${!gpus[@]}"; do
     (
-      export CUDA_VISIBLE_DEVICES="${gpus[$g]}" SCREEN_PORT=$((11440 + g)) SCREEN_GPU="$g"
+      export CUDA_VISIBLE_DEVICES="${gpus[$g]}" SCREEN_PORT=$((11440 + g)) SCREEN_GPU="$g" SCREEN_EVICT="${SCREEN_EVICT:-1}"
       status=0
       for ((i = g; i < ${#MODELS[@]}; i += ${#gpus[@]})); do
         m="${MODELS[$i]}"
@@ -113,6 +113,20 @@ shift || true
 echo "job=${SLURM_JOB_ID:-none} node=$(hostname) model=$model port=$OLLAMA_PORT commit=$(git rev-parse HEAD)"
 nvidia-smi --query-gpu=uuid,name,memory.total,driver_version --format=csv
 start_ollama; trap stop_ollama EXIT
-"$OLLAMA_BIN" show "$model" >/dev/null || { echo "model $model not pulled; run 'run.sh pull' on the login node" >&2; exit 1; }
+# Just-in-time download (home quota): pull if missing; the manifest binds the digest, so a re-pull
+# that yields a different digest makes screen.py refuse to resume instead of mixing versions.
+if ! "$OLLAMA_BIN" show "$model" >/dev/null 2>&1; then
+  "$OLLAMA_BIN" pull "$model" || { echo "pull of $model failed (no network on this node? then 'run.sh pull $model' on the login node)" >&2; exit 1; }
+  dedupe_blobs
+fi
 python scripts/screen/screen.py run --tasks "$tasks" --out "$out" --model "$model" --url "$BASE_URL" "$@"
+if [[ "${SCREEN_EVICT:-0}" == 1 ]]; then
+  # Keep models whose blobs are shared with the confirm store (hardlinks): deleting frees nothing.
+  digest="$("$OLLAMA_BIN" show "$model" --modelfile 2>/dev/null | sed -n 's/^FROM .*blobs\/\(sha256-[0-9a-f]*\).*/\1/p' | head -1)"
+  if [[ -n "$digest" && "$(stat -c %h "$OLLAMA_MODELS/blobs/$digest" 2>/dev/null || echo 1)" -gt 1 ]]; then
+    echo "[evict] keeping $model (shared with confirm store)"
+  else
+    "$OLLAMA_BIN" rm "$model" && echo "[evict] removed $model"
+  fi
+fi
 grep -iE "offload|layers.*gpu|total memory" "$RAMSES_LOG_DIR/ollama_${SLURM_JOB_ID:-local}.log" | tail -5 || true
