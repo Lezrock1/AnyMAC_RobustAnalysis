@@ -302,6 +302,8 @@ def report(args):
              "| model | benchmark | cond | n | acc | format | errors | final trunc | any trunc | rep agree | acc mod23* | tok/s | s/episode | eligible |",
              "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     summary = {}
+    if not args.out.is_dir():
+        raise SystemExit(f"no results in {args.out} yet")
     for mdir in sorted(p for p in args.out.iterdir() if p.is_dir()):
         name = mdir.name + ("" if (mdir / "COMPLETE.json").exists() else " (INCOMPLETE)")
         rows = [json.loads(ln) for f in sorted(mdir.glob("*.jsonl")) for ln in f.read_text().splitlines() if ln.strip()]
