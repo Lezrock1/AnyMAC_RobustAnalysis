@@ -76,6 +76,20 @@ under both markers (honest). It requires zero episode errors, <=5% episodes with
 <=5% invalid final formats. If it fails, NOTHING on eval is started. Increase limits in a NEW output
 directory based on dev evidence, never select limits using eval outcomes.
 
+Protocol change after the v1 dev gate (`confirm_chat4096_v1`, 2026-10-19, dev data only, no eval
+started): 5/24 episodes had a truncated call, 0 errors, 1/24 invalid format. 5/6 truncated calls were
+step-0 WORKER calls (rumination about an assumed "typo", one literal repetition loop); 1/24 was the
+decision call. Since loops do not terminate at a larger limit, the limit stays at 4096 and the gate
+becomes `--truncation-gate decision`: zero errors, <=5% decision-stage truncation, <=5% invalid
+format. Worker truncation is model behaviour under the protocol, kept in the data, reported per cell
+and in a sensitivity table that excludes truncated episodes (a non-random selection). The gate is
+re-run on fresh dev calibration in a new output directory:
+
+```bash
+bash scripts/followup/run.sh confirm --truncation-gate decision \
+  --out results/followup/confirm_chat4096_gate2_v1
+```
+
 Defaults: Ollama `/api/chat`, 4096 output tokens, 16384 context, two parallel slots, q8_0 KV,
 temperature 0 / top_k 1 / seed 42. These settings need validation on Ramses; no claim that 4096 always
 suffices. No extra brevity prompt or parser patch changes the agent reasoning. Both legacy and strict
