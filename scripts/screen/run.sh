@@ -15,6 +15,8 @@ dest="$RAMSES_CACHE_DIR/ollama-screen-$SCREEN_OLLAMA_VERSION"
 export OLLAMA_BIN="$dest/bin/ollama" OLLAMA_MODELS="$RAMSES_CACHE_DIR/ollama-screen-models"
 export OLLAMA_PORT="${SCREEN_PORT:-11440}"
 export BASE_URL="http://127.0.0.1:$OLLAMA_PORT"
+# The ollama CLI (pull/show/list) finds the server only via OLLAMA_HOST; default would be 11434.
+export OLLAMA_HOST="127.0.0.1:$OLLAMA_PORT"
 # configs/ramses.env may set RAMSES_LOG_DIR, so per-GPU Ollama logs are separated after load_env
 RAMSES_LOG_DIR="$RAMSES_LOG_DIR/screen${SCREEN_GPU:+_gpu$SCREEN_GPU}"
 base="$RESULTS_DIR/screen"
