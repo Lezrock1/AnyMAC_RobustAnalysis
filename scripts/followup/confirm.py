@@ -1,6 +1,7 @@
 """Repeated frozen-checkpoint evaluation with chat output; no router training or production writes."""
 import argparse
 import asyncio
+from collections import defaultdict
 from contextlib import contextmanager
 import fcntl
 import json
@@ -84,18 +85,22 @@ def install_chat(limit, context):
     sllm_chat.achat = chat
 
 
-def quality(rows, max_rate):
+def quality(rows, max_rate, truncation_gate="any"):
     if not rows:
         raise ValueError("No calibration episodes")
+    scored = [score(r) for r in rows]
     return {"n": len(rows),
             "episode_errors": sum(bool(r.get("error")) for r in rows),
-            "truncated_episode_rate": sum(bool(r.get("usage", {}).get("truncated")) for r in rows) / len(rows),
-            "invalid_format_rate": sum(not score(r)["format_valid"] for r in rows) / len(rows),
-            "threshold": max_rate}
+            "truncated_episode_rate": sum(s["any_call_truncated"] for s in scored) / len(rows),
+            "decision_truncated_rate": sum(s["decision_stage_truncated"] for s in scored) / len(rows),
+            "invalid_format_rate": sum(not s["format_valid"] for s in scored) / len(rows),
+            "threshold": max_rate, "truncation_gate": truncation_gate}
 
 
 def passed(q):
-    return not q["episode_errors"] and q["truncated_episode_rate"] <= q["threshold"] and q["invalid_format_rate"] <= q["threshold"]
+    # "decision": worker truncation is a reported covariate; only the decision stage is gated.
+    gated = q["decision_truncated_rate"] if q.get("truncation_gate") == "decision" else q["truncated_episode_rate"]
+    return not q["episode_errors"] and gated <= q["threshold"] and q["invalid_format_rate"] <= q["threshold"]
 
 
 def checkpoint(source, stage):
@@ -111,8 +116,9 @@ def report(out):
     summary = {"protocol": manifest, "files": {}, "effects": {}}
     lines = ["# Frozen-checkpoint confirmation", "", "Strict and legacy scores on the SAME new texts.",
              "Partial cells are not complete evaluations. A/B/C each have only one training seed.", "",
-             "| checkpoint/repetition/cell | n | legacy correct | strict correct | strict target | ctrl selected | errors | truncated episodes |",
-             "|---|---:|---:|---:|---:|---:|---:|---:|"]
+             "| checkpoint/repetition/cell | n | legacy correct | strict correct | strict target | ctrl selected | errors | truncated episodes | decision truncated |",
+             "|---|---:|---:|---:|---:|---:|---:|---:|---:|"]
+    sensitivity = []
     for path in sorted((out / "eval").glob("*.jsonl")):
         expected = {(t, m, p) for t in manifest["task_ids"] for m in ("blue", "green") for p in ("attack", "honest")}
         result, _ = audit_eval(path, expected)
@@ -131,15 +137,26 @@ def report(out):
                 "attack_target": statistics.mean(values[f"attack/{m}"]["strict_target_success"] for m in ("blue", "green")),
                 "attack_ctrl_blue_minus_green": values["attack/blue"]["controlled_selected"] - values["attack/green"]["controlled_selected"]}
             summary["effects"][path.stem] = effects
+            clean = defaultdict(list)
+            for r in load_rows(path)[0]:
+                sc = score(r)
+                if not sc["any_call_truncated"] and not r.get("error"):
+                    clean[f"{r['policy']}/{r['marker']}"].append(sc)
+            for cell in sorted(cells):
+                v = clean[cell]
+                sensitivity.append(f"| {path.stem}/{cell} | {len(v)}/{cells[cell]['n']} | "
+                                   f"{sum(x['strict_correct'] for x in v)} | {sum(x['strict_target_success'] for x in v)} |")
         for cell, c in sorted(result["cells"].items()):
             lines.append(f"| {path.stem}/{cell} | {c['n']} | {c['stored_correct']} | {c['strict_correct']} | "
-                         f"{c['strict_target_success']} | {c['controlled_selected']} | {c['episode_errors']} | {c['any_call_truncated']} |")
+                         f"{c['strict_target_success']} | {c['controlled_selected']} | {c['episode_errors']} | {c['any_call_truncated']} | {c['decision_stage_truncated']} |")
     lines += ["", "## Strict effects (complete repetitions only)", "",
               "| checkpoint/repetition | honest acc | attack acc | honest-attack | attack target | ctrl blue-green |",
               "|---|---:|---:|---:|---:|---:|"]
     for name, e in sorted(summary["effects"].items()):
         lines.append(f"| {name} | {e['honest_accuracy']:.3f} | {e['attack_accuracy']:.3f} | "
                      f"{e['honest_minus_attack_accuracy']:.3f} | {e['attack_target']:.3f} | {e['attack_ctrl_blue_minus_green']:.3f} |")
+    lines += ["", "## Sensitivity: episodes without any truncated call or error (selection is NOT random)", "",
+              "| checkpoint/repetition/cell | kept/n | strict correct | strict target |", "|---|---:|---:|---:|", *sensitivity]
     lines += ["", "## Across repetitions (descriptive, NOT across training seeds)", ""]
     for stage in manifest["checkpoints"]:
         effects = [e for name, e in summary["effects"].items() if name.rsplit("_rep", 1)[0] == stage]
@@ -193,6 +210,7 @@ def run(args):
                 "calibration_checkpoints": calibration_ckpts,
                 "task_ids": [t.id for t in tasks], "limit": args.limit, "context": args.context,
                 "max_quality_rate": args.max_quality_rate,
+                **({"truncation_gate": args.truncation_gate} if args.truncation_gate != "any" else {}),
                 "source_sha256": {str(p.relative_to(ROOT)): digest(p) for p in sorted(code)},
                 "router_variant": "original frozen checkpoints; no runtime router patches",
                 "transport": "chat", "server": {"num_parallel": args.concurrency, "kv_cache_type": "q8_0"}}
@@ -238,7 +256,7 @@ def run(args):
                                    on_result=lambda r: save_episode(path, r)))
                 cal_rows.extend(checked_rows(path, expected))
                 del graph
-            q = quality(cal_rows, args.max_quality_rate)
+            q = quality(cal_rows, args.max_quality_rate, args.truncation_gate)
             write_json(gate, q)
         q = json.loads(gate.read_text())
         if not passed(q):
@@ -280,7 +298,7 @@ def run(args):
         rows = [r for p in (out / "eval").glob("*.jsonl") for r in checked_rows(p, expected)]
         if len(rows) != len(expected_files) * len(expected):
             raise ValueError("Evaluation coverage incomplete; not marking COMPLETE")
-        q = quality(rows, args.max_quality_rate)
+        q = quality(rows, args.max_quality_rate, args.truncation_gate)
         write_json(out / "quality.json", q)
         if not passed(q):
             raise SystemExit(f"Finished with quality problems (do NOT discard or silently retry): {q}")
@@ -300,6 +318,8 @@ def main():
     parser.add_argument("--concurrency", type=int, default=2)
     parser.add_argument("--hours", type=float, default=43)
     parser.add_argument("--max-quality-rate", type=float, default=0.05)
+    parser.add_argument("--truncation-gate", choices=("any", "decision"), default="any",
+                        help="any = every truncated call fails the gate (v1); decision = only decision-stage truncation")
     args = parser.parse_args()
     if args.hours <= 0 or not 0 <= args.max_quality_rate < 1:
         parser.error("Need positive hours and quality threshold in [0, 1)")

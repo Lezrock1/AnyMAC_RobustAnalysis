@@ -91,6 +91,14 @@ def test_quality_gate_and_chat_payload():
     assert not confirm.passed(confirm.quality([episode(error="timeout")], 0.05))
     assert not confirm.passed(confirm.quality([episode(final_text="x = 3")], 0.05))
     assert not confirm.passed(confirm.quality([episode(usage={"truncated": 1})], 0.05))
+    worker_cut = episode(usage={"truncated": 1}, events=[
+        {"is_decision": False, "usage": {"truncated": 1}},
+        {"is_decision": True, "usage": {"truncated": 0}, "extra_calls": []}])
+    q = confirm.quality([worker_cut], 0.05, "decision")
+    assert confirm.passed(q) and q["truncated_episode_rate"] == 1 and q["decision_truncated_rate"] == 0
+    assert not confirm.passed(confirm.quality([worker_cut], 0.05, "any"))
+    final_cut = episode(usage={"truncated": 1}, events=[{"is_decision": True, "usage": {"truncated": 1}, "extra_calls": []}])
+    assert not confirm.passed(confirm.quality([final_cut], 0.05, "decision"))
     messages = [{"role": "system", "content": "system"}, {"role": "user", "content": "task"}]
     p = confirm.payload("tag", messages, 4096, 16384)
     assert p["messages"] == messages and "prompt" not in p and p["options"]["num_predict"] == 4096
@@ -192,7 +200,8 @@ def test_confirmation_end_to_end_resume_and_dev_gate(tmp_path, monkeypatch):
     monkeypatch.setattr(rollout, "run_batch", batch)
     args = argparse.Namespace(source=source, splits=splits, out=tmp_path / "confirmation",
                               checkpoints=["branch_B", "continue_B"], tasks=0, reps=2, limit=4096,
-                              context=16384, concurrency=2, hours=1, max_quality_rate=0.05)
+                              context=16384, concurrency=2, hours=1, max_quality_rate=0.05,
+                              truncation_gate="any")
     confirm.run(args)
     assert len(calls) == 24 + 16
     assert json.loads((args.out / "COMPLETE.json").read_text())["episodes"] == 16
