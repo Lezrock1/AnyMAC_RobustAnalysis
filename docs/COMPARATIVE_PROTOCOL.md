@@ -16,8 +16,15 @@ Teiluntersuchungen fuer geeignete lernende Router, nicht die gemeinsame Hauptfra
 - Vereinbarter Umfang: AnyMAC, zwei weitere veroeffentlichte dynamische Verfahren,
   eine feste Referenzstrategie.
 - Verfuegbar laut Nutzer: bis zu drei GPU-Knoten, mehrtaegige Laeufe moeglich.
-- Unbekannt: GPU-Anzahl und VRAM pro Knoten, bewilligte Partitionen und deren
-  Zeitlimits. Drei Knoten bedeuten nicht automatisch drei gemeinsam nutzbare GPUs.
+- Vom Nutzer uebermittelte `sinfo`-Ausgabe: `interactive` bietet A30
+  (GRES `gpu:a30:4`) mit Partitionslimit 15 Tagen; `gpu` bietet H100-Ressourcen
+  mit Partitionslimit 15 Tagen, `largegpu` mit 2 Tagen. Teilweise sind dort
+  MIG-Instanzen mit 12/24/47 GB ausgewiesen. `schwarzr` zeigt auch H200-Ressourcen,
+  darf aber ohne bestaetigte Berechtigung nicht eingeplant werden.
+- Unbekannt: bewilligter Zugriff, QOS-/Accountlimits und tatsaechlicher VRAM
+  einer angeforderten vollstaendigen Karte. Partitionslimit ist keine Garantie
+  fuer bewilligte Laufzeit. Drei Knoten bedeuten nicht automatisch drei gemeinsam
+  nutzbare GPUs.
 - Kein Anlass fuer unbeschraenkte Sweeps: Jede Erweiterung braucht eine konkrete
   Hypothese, Funktionspruefung und Kostenmessung.
 
@@ -238,10 +245,13 @@ und ehrliche Leistungsveraenderung mitberichten.
 
 ## 7. Ausfuehrungsreihenfolge und offene Angaben
 
-Jetzt: einen Knoten mit 16 CPUs fuer den implementierten `followup/run.sh both`
+Jetzt: bekannte A30-Allokation mit 16 CPUs fuer den implementierten `followup/run.sh both`
 verwenden. Keine drei identischen Jobs auf denselben Ergebnisordner starten.
 Die uebrigen Knoten erst nach Adaptertests fuer getrennte Methodenjobs einsetzen;
 vorher waeren sie kein sinnvoller wissenschaftlicher Mehrwert.
+Nicht mitten in einer Wiederholungsserie zwischen A30 und H100 wechseln.
+Ein spaeterer Hardware-/Servingwechsel erhaelt einen separaten Protokollblock
+mit eigener Kalibrierung und Wiederholungsdiagnose.
 
 Naechste Implementationsreihenfolge:
 
@@ -253,9 +263,12 @@ Naechste Implementationsreihenfolge:
 
 Noch vom Nutzer zu klaeren:
 
-- Welche GPUs/VRAM sind tatsaechlich je Knoten anforderbar?
-- Ausschliesslich lokale Modelle, oder waeren kostenpflichtige externe APIs
-  ueberhaupt erlaubt? Bis dahin werden KEINE externen Modellanfragen vorbereitet.
+- Ist Zugriff auf `gpu` mit einer vollstaendigen H100 bewilligt? Das ist fuer
+  E0 nicht erforderlich. Vor groesseren Alternativmodellen VRAM im zugeteilten
+  Job mit `nvidia-smi` messen.
+- Es werden ausschliesslich lokale Modelle eingeplant. Methodenvorgaben mit
+  externen APIs sind entweder transparent lokal anzupassen oder nicht geeignet;
+  keine kostenpflichtigen externen Modellanfragen ohne gesonderte Freigabe.
 - Neue Rohdaten/Prompts duerfen fuer diese Arbeit nur lokal bzw. auf Ramses bleiben;
   keine Uebertragung an Drittanbieter ohne gesonderte Zustimmung.
 
