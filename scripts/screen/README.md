@@ -31,16 +31,21 @@ explicitly before a new screen (new task sample, new output directory).
 
 ## Run (Ramses)
 
+The `interactive` partition (A30) does not accept `sbatch`; use one interactive allocation. All steps
+use the project venv. Downloads happen on the login node only.
+
 ```bash
 cd ~/AnyMAC_RobustAnalysis && git pull --ff-only
-bash scripts/screen/run.sh install      # login node: pinned Ollama into cache/
+bash scripts/screen/run.sh install      # login node: pinned Ollama 0.40.6 into cache/
 bash scripts/screen/run.sh prepare      # login node: download pinned data, freeze sample
 bash scripts/screen/run.sh pull         # login node: ~70 GB models, no GPU, no model load
-sbatch scripts/screen/screen_a30.sbatch # 4 array tasks, one A30 each
-squeue -u $USER; tail -f slurm_screen_*_0.log
-bash scripts/screen/run.sh report       # any time; incomplete models are marked
+tmux new -s screen                      # survives SSH disconnects
+srun -p interactive --gres=gpu:a30:4 --cpus-per-task=16 --mem=128G --time=48:00:00 --pty /bin/bash
+cd ~/AnyMAC_RobustAnalysis && bash scripts/screen/run.sh all
 ```
 
-Resubmitting the same sbatch resumes completed episodes. A manifest mismatch (code, model digest,
-limits) refuses to mix results; use a new output directory. Single model interactively:
-`bash scripts/screen/run.sh run gemma4:26b-a4b-it-qat` inside an A30 allocation.
+`all` starts one worker per visible GPU (port 11440+i) and distributes the models round-robin, so
+fewer GPUs (e.g. `gpu:a30:2`) also work, just slower. Logs: `results/screen/logs/<model>.log`.
+Rerunning `all` resumes recorded episodes. A manifest mismatch (code, model digest, limits) refuses
+to mix results; use a new output directory. Report any time: `bash scripts/screen/run.sh report`
+(incomplete models are marked). Single model: `bash scripts/screen/run.sh run gemma4:26b-a4b-it-qat`.
