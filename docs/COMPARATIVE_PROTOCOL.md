@@ -86,6 +86,12 @@ Alternativen, nicht parallel ebenfalls implementieren:
   GitHub meldet keine erkannte Lizenz; vor Codeuebernahme klaeren.
   Zuvor festgestellte Paper-Code-Abweichungen muessen methodisch dokumentiert werden.
 
+Entscheidung 2026-10-19 (Nutzer): G-Designer ist das bevorzugte zweite Verfahren neben
+DyLAN; MasRouter ist Rueckfallkandidat. G-Designer beansprucht selbst Robustheit gegen
+adversariale Agenten (MMLU); der Beitrag muss daher in der Kette Exposition -> Zustellung ->
+Einfluss und den Interventionen liegen, nicht in der blossen Robustheitsmessung.
+Optional: transparenter LLM-Orchestrator als Referenz im E1-Kostenpilot.
+
 Entscheidungsschranke: Kann MasRouter nur mit wesentlich veraenderter Rollen-/Modellauswahl
 betrieben werden, wird es nicht stillschweigend auf AnyMAC zugeschnitten. Stattdessen
 separaten nativen Vergleich ausweisen oder die Methodenwahl begruendet revidieren.
@@ -264,9 +270,13 @@ mit eigener Kalibrierung und Wiederholungsdiagnose.
 
 Naechste Implementationsreihenfolge:
 
+0. Modell- und Benchmark-Screening (nur ehrlich, A30, vorab registrierte Kriterien):
+   `scripts/screen/README.md`. Waehlt Agentenmodell und Benchmark fuer E1-E3. Das Pilotmodell
+   `qwen3:30b-a3b-instruct-2507` (Juli 2025) ist nur Kontinuitaetsanker. Screening-Aufgaben sind
+   reserviert und in keiner spaeteren Evaluation zulaessig.
 1. Gemeinsamer Ereignisvertrag, Scoring und fixe Referenz mit Tests.
 2. DyLAN-Adapter, gepinnter offizieller Auswahl-/Stopppfad.
-3. MasRouter-Code-/Checkpointaudit; native versus harmonisierte Ausfuehrung festlegen.
+3. G-Designer-Audit (Lizenz, Paper/Code-Abweichungen) und Adapter; MasRouter nur als Rueckfall.
 4. Lokal gemockter End-to-End-Test aller Adapter; dann E1 auf Ramses.
 5. Kosten/Praezision aus E1 pruefen, Protokoll einfrieren, erst dann E2/E3.
 

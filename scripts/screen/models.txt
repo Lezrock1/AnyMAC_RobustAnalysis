@@ -1,0 +1,9 @@
+# One Ollama tag per line; array index = line number (0-based). All must fit an A30 (24 GB) at q4.
+# Anchor: model of the AnyMAC pilot (continuity, July 2025).
+qwen3:30b-a3b-instruct-2507-q4_K_M
+# Newest dense Qwen (Aug 2026, Apache-2.0), 18 GB.
+qwen3.8:27b-q4_K_M
+# Gemma 4 MoE, 3.8B active (Mar 2026, Apache-2.0), QAT for 4-bit, 16 GB.
+gemma4:26b-a4b-it-qat
+# Third family: GLM-4.7-Flash (Jan 2026, MIT), 19 GB. Nemotron 3.5 Lightning q4 is 25 GB: does not fit.
+glm-4.7-flash:latest
