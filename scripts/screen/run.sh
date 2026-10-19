@@ -57,10 +57,12 @@ if [[ "$mode" == all ]]; then
   (( ${#gpus[@]} )) || { echo "no GPU visible" >&2; exit 1; }
   mkdir -p "$base/logs"
   pids=()
+  trap 'kill "${pids[@]}" 2>/dev/null; wait; exit 130' INT TERM
   for g in "${!gpus[@]}"; do
     (
       export CUDA_VISIBLE_DEVICES="${gpus[$g]}" SCREEN_PORT=$((11440 + g)) SCREEN_GPU="$g" SCREEN_EVICT="${SCREEN_EVICT:-1}"
       status=0
+      trap 'exit 130' INT TERM  # Ctrl+C stops this worker; without it the loop moved on to the next model
       for ((i = g; i < ${#MODELS[@]}; i += ${#gpus[@]})); do
         m="${MODELS[$i]}"
         bash scripts/screen/run.sh run "$m" >>"$base/logs/${m//[:\/]/_}.log" 2>&1 || { status=1; echo "FAILED $m (see $base/logs)"; }
