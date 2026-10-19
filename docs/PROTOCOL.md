@@ -1,5 +1,12 @@
 # Experimentprotokoll (Version 1.0, `robust.PROTOCOL_VERSION`)
 
+**Historisches AnyMAC-Protokoll:** Diese Version beschreibt die bisherigen Laeufe,
+nicht die inzwischen breiter gefasste Fragestellung. Die Vorbereitung des
+routeruebergreifenden Vergleichs steht im [Vergleichsprotokoll](./COMPARATIVE_PROTOCOL.md).
+Insbesondere sind LLM-Ausgaben auch bei Temperatur 0 nicht garantiert deterministisch;
+neue Bestaetigungen verwenden Wiederholungen und getrennte Qualitaetsdiagnosen
+([Folgetests](../scripts/followup/README.md)).
+
 Forschungsfrage: Kann ein Angreifer das Router-Training von AnyMAC (NAP/NCS) beeinflussen, sodass der Router später
 falschen Agenten vertraut oder korrekte Prüfernachrichten nicht weitergibt? Alle Aussagen gelten nur für die
 trainierten Checkpoints (ein Trainingsseed im Pilot; drei im Full-Profil).
