@@ -22,6 +22,15 @@ def test_strict_answer():
     assert screen.strict_answer("The answer is 23", INT) is None
     assert screen.strict_answer("The answer is B", INT) is None
     assert screen.strict_answer("", MC) is None
+    # parser v2: option text after the letter is accepted, ambiguity is not
+    assert screen.strict_answer("The answer is D. Not wrong, Not wrong", MC) == "D"
+    assert screen.strict_answer("The answer is (B) Wrong, Not wrong", MC) == "B"
+    assert screen.strict_answer("The answer is A lot", MC) is None
+    assert screen.strict_answer("The answer is B or C", MC) is None
+    assert screen.strict_answer("The answer is 15. Done", INT) is None
+    assert screen.strict_answer("The answer is 84.", INT) is None
+    assert screen.unreduced_int("x\nThe answer is 84.") == 84
+    assert screen.unreduced_int("The answer is D") is None
 
 
 def test_mc_rows_keep_official_letters():

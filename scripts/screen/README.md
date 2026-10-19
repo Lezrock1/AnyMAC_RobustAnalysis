@@ -57,3 +57,13 @@ store (hardlinks, see `run.sh dedupe`) are kept. Hence **one A30** (`gpu:a30:1`)
 sequentially and at most one non-anchor model is on disk. Several GPUs would hold several models at
 once and can exceed the quota. A re-pull with a changed digest makes the run refuse to resume
 (manifest), so versions are never mixed. `SCREEN_MODELS_DIR` moves the store to another filesystem.
+
+### Protocol change v1 -> v2 (2026-10-19, before any model selection)
+`screen_v1` was aborted after 73 episodes of the anchor model (kept, not used):
+1. Ollama ran 192 CPU threads (all node cores) on an 8-CPU allocation shared with other jobs:
+   15 tok/s with all 49/49 layers on the GPU. v2 sends `num_thread` = allocated CPUs (`--threads`).
+2. Parser v1 rejected unambiguous MC finals with option text (`The answer is D. Not wrong, Not wrong`).
+   v2 accepts a letter followed by a separator and text; integers must still stand alone.
+3. Added `acc mod23`: integer answers reduced mod 23 by us. Sensitivity only, never for eligibility
+   (the task demands mod-23 arithmetic; e.g. the anchor answered 84 for truth 15).
+Criteria, tasks and selection rule are unchanged. Output: `results/screen/screen_v2`.

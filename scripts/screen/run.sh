@@ -23,7 +23,7 @@ export OLLAMA_HOST="127.0.0.1:$OLLAMA_PORT"
 RAMSES_LOG_DIR="$RAMSES_LOG_DIR/screen${SCREEN_GPU:+_gpu$SCREEN_GPU}"
 base="$RESULTS_DIR/screen"
 tasks="$base/screen_tasks_v1.json"
-out="$base/screen_v1"
+out="$base/screen_v2"  # v1 aborted: 192 Ollama threads on 8 CPUs, parser v1
 mapfile -t MODELS < <(grep -v '^\s*#' scripts/screen/models.txt | sed '/^\s*$/d')
 
 if [[ "$mode" == install ]]; then

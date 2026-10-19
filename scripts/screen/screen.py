@@ -114,17 +114,23 @@ def messages(step, task, history):
     return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-_LINE = re.compile(r"^the answer is\s*:?\s*\(?\s*([A-Za-z]|-?\d+)\s*\)?\s*\.?$", re.IGNORECASE)
+# Parser v2 (2026-10-19, before any selection): an MC letter may be followed by its option text after a
+# separator ("The answer is D. Not wrong, Not wrong"); integers must still stand alone. v1 rejected the former.
+_LINE = re.compile(r"^the answer is\s*:?\s*\(?\s*([A-Za-z]|-?\d+)\s*\)?\s*(?:[.:)]\s*(.*?))?\s*\.?$", re.IGNORECASE)
+
+
+def _last_line(text):
+    lines = [ln for ln in (text or "").strip().splitlines() if ln.strip()]
+    return re.sub(r"\\boxed\{|\\text\{|[*_`$\\{}]", "", lines[-1]).strip() if lines else ""
 
 
 def strict_answer(text, task):
-    lines = [ln for ln in (text or "").strip().splitlines() if ln.strip()]
-    if not lines:
-        return None
-    m = _LINE.match(re.sub(r"\\boxed\{|\\text\{|[*_`$\\{}]", "", lines[-1]).strip())
+    m = _LINE.match(_last_line(text))
     if not m:
         return None
     v = m.group(1)
+    if task["kind"] != "mc" and m.group(2):
+        return None
     if task["kind"] == "mc":
         v = v.upper()
         return v if len(v) == 1 and v in LETTERS[:task["n_options"]] else None
@@ -133,10 +139,24 @@ def strict_answer(text, task):
     return int(v) if 0 <= int(v) < 23 else None
 
 
+def unreduced_int(text):
+    """Sensitivity only (never used for eligibility): integer final answer without the mod-23 bound."""
+    m = re.fullmatch(r"the answer is\s*:?\s*(\d+)\s*\.?", _last_line(text), re.IGNORECASE)
+    return int(m.group(1)) if m else None
+
+
+def default_threads():
+    import os
+    if os.environ.get("SLURM_CPUS_PER_TASK"):
+        return int(os.environ["SLURM_CPUS_PER_TASK"])
+    return len(os.sched_getaffinity(0)) if hasattr(os, "sched_getaffinity") else (os.cpu_count() or 1)
+
+
 # ---------------------------------------------------------------- execution
 async def chat(session, url, model, msgs, args):
     body = {"model": model, "messages": msgs, "stream": False, "keep_alive": "24h",
-            "options": {"temperature": 0, "top_k": 1, "seed": 42, "num_predict": args.limit, "num_ctx": args.context}}
+            "options": {"temperature": 0, "top_k": 1, "seed": 42, "num_predict": args.limit, "num_ctx": args.context,
+                        "num_thread": args.threads}}
     if args.thinking_capable:
         body["think"] = False
     t0 = time.time()
@@ -208,7 +228,7 @@ def run(args):
     caps = capabilities(url, args.model)
     args.thinking_capable = "thinking" in caps
     out = args.out / args.model.replace("/", "_").replace(":", "__")
-    manifest = {"schema": 1, "model": identity, "capabilities": caps, "ollama": get(url, "/api/version")["version"],
+    manifest = {"schema": 2, "parser": "v2", "threads": args.threads, "model": identity, "capabilities": caps, "ollama": get(url, "/api/version")["version"],
                 "tasks_sha256": sha256(args.tasks), "limit": args.limit, "context": args.context,
                 "concurrency": args.concurrency, "think": False, "reps": args.reps,
                 "benchmarks": sorted(args.benchmarks), "criteria": CRITERIA, "source_sha256": sha256(Path(__file__))}
@@ -252,6 +272,8 @@ def summarize(rows):
     for r in rows:
         by_task[r["task_id"]][r["rep"]] = r["pred"]
     pairs = [v for v in by_task.values() if len(v) >= 2]
+    mod = [(r, unreduced_int(r["outputs"][-1]) if not r["error"] and r["outputs"] else None)
+           for r in rows if not isinstance(r["truth"], str)]
     return {"n": n, "accuracy": sum(r["correct"] for r in rows) / n,
             "format_valid": sum(r["format_valid"] for r in rows) / n,
             "errors": sum(bool(r["error"]) for r in rows),
@@ -261,6 +283,7 @@ def summarize(rows):
             "repeat_agreement": (sum(len(set(v.values())) == 1 for v in pairs) / len(pairs)) if pairs else None,
             "output_tok_per_s": sum(c["completion_tokens"] for c in calls) / eval_s if eval_s else 0.0,
             "wall_s_per_episode": sum(c["wall_s"] for c in calls) / n,
+            "acc_mod23": (sum(u is not None and u % 23 == r["truth"] for r, u in mod) / len(mod)) if mod else None,
             "completion_tokens_mean": sum(c["completion_tokens"] for c in calls) / n}
 
 
@@ -274,9 +297,10 @@ def eligible(s, condition):
 
 def report(args):
     lines = ["# Model x benchmark screening (honest only)", "", f"Pre-registered criteria: `{json.dumps(CRITERIA)}`", "",
-             "Accuracy window applies to `single`; all other criteria to every cell. Incomplete models are marked.", "",
-             "| model | benchmark | cond | n | acc | format | errors | final trunc | any trunc | rep agree | tok/s | s/episode | eligible |",
-             "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
+             "Accuracy window applies to `single`; all other criteria to every cell. Incomplete models are marked.",
+             "*acc mod23: sensitivity only (integer answer reduced mod 23 by us); never used for eligibility.", "",
+             "| model | benchmark | cond | n | acc | format | errors | final trunc | any trunc | rep agree | acc mod23* | tok/s | s/episode | eligible |",
+             "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
     summary = {}
     for mdir in sorted(p for p in args.out.iterdir() if p.is_dir()):
         name = mdir.name + ("" if (mdir / "COMPLETE.json").exists() else " (INCOMPLETE)")
@@ -291,6 +315,7 @@ def report(args):
             ra = "n/a" if s["repeat_agreement"] is None else f"{s['repeat_agreement']:.2f}"
             lines.append(f"| {name} | {bench} | {cond} | {s['n']} | {s['accuracy']:.3f} | {s['format_valid']:.3f} | "
                          f"{s['errors']} | {s['final_truncated']:.3f} | {s['any_truncated']:.3f} | {ra} | "
+                         f"{'n/a' if s['acc_mod23'] is None else format(s['acc_mod23'], '.3f')} | "
                          f"{s['output_tok_per_s']:.1f} | {s['wall_s_per_episode']:.1f} | {s['eligible']} |")
     lines += ["", "## Chain gain (accuracy chain3 - single, pooled over repetitions)", ""]
     for key in sorted(k for k in summary if k.endswith("/single")):
@@ -322,6 +347,8 @@ def main(argv=None):
     r.add_argument("--context", type=int, default=16384)
     r.add_argument("--concurrency", type=int, default=1)
     r.add_argument("--call-timeout", type=float, default=1800)
+    r.add_argument("--threads", type=int, default=default_threads(),
+                   help="Ollama num_thread; default = allocated CPUs (Ollama otherwise uses all node cores)")
     s = sub.add_parser("report")
     s.add_argument("--out", type=Path, required=True)
     args = ap.parse_args(argv)
