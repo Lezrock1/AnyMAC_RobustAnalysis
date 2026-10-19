@@ -38,7 +38,7 @@ use the project venv. Downloads happen on the login node only.
 cd ~/AnyMAC_RobustAnalysis && git pull --ff-only
 bash scripts/screen/run.sh install      # login node: pinned Ollama 0.40.6 into cache/
 bash scripts/screen/run.sh prepare      # login node: download pinned data, freeze sample
-bash scripts/screen/run.sh pull         # login node: ~70 GB models, no GPU, no model load
+bash scripts/screen/run.sh dedupe       # optional: anchor shares blobs with confirm store
 tmux new -s screen                      # survives SSH disconnects
 srun -p interactive --gres=gpu:a30:1 --cpus-per-task=8 --mem=128G --time=48:00:00 --pty /bin/bash
 cd ~/AnyMAC_RobustAnalysis && bash scripts/screen/run.sh all
