@@ -12,13 +12,14 @@ import hashlib
 import json
 import random
 import sys
+from collections import defaultdict
 from contextlib import contextmanager
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from baseline import FixedCycle  # noqa: E402
-from contract import POLICIES, Episode, validate  # noqa: E402
+from contract import POLICIES, Episode, target_for, validate  # noqa: E402
 from scoring import OUTCOMES, paired_effect, score, summarize  # noqa: E402
 
 SYSTEMS = {"fixed": lambda a: FixedCycle(a.roles, rounds=a.rounds)}
@@ -30,6 +31,18 @@ def sha256_bytes(b):
 
 def source_digest():
     return {p.name: sha256_bytes(p.read_bytes()) for p in sorted(HERE.glob("*.py")) if not p.name.startswith("test_")}
+
+
+def file_hashes(paths):
+    """For adapters: content hashes of upstream code, checkpoints and configs (provenance, obligation 6)."""
+    out = {}
+    for p in map(Path, paths):
+        files = sorted(f for f in p.rglob("*") if f.is_file()) if p.is_dir() else [p]
+        if not files:
+            raise SystemExit(f"provenance path {p} is empty or missing")
+        for f in files:
+            out[str(f)] = sha256_bytes(f.read_bytes())
+    return out
 
 
 def write_json(path, obj):
@@ -73,7 +86,18 @@ def schedule(tasks, policies, reps, seed):
     return order
 
 
-def read_traces(path):
+def check_against_manifest(t, manifest, tasks):
+    """A trace must belong to exactly this run: system, attack setup, budget, schedule and target."""
+    task = tasks.get(t["task_id"])
+    ok = (task is not None and t["task_id"] in manifest["task_ids"]
+          and t["system"] == manifest["system"]["system"] and t["compromised"] == manifest["compromised"]
+          and t["max_calls"] == manifest["max_calls"] and t["policy"] in manifest["policies"]
+          and 1 <= t["rep"] <= manifest["reps"] and t["target"] == target_for(task, manifest["target_seed"]))
+    if not ok:
+        raise SystemExit(f"trace {t['task_id']}/{t['policy']}/rep{t['rep']} does not match the manifest")
+
+
+def read_traces(path, manifest=None, tasks=None):
     rows = []
     if path.exists():
         for n, ln in enumerate(path.read_text().splitlines(), 1):
@@ -81,6 +105,8 @@ def read_traces(path):
                 try:
                     t = json.loads(ln)
                     validate(t)
+                    if manifest is not None:
+                        check_against_manifest(t, manifest, tasks)
                 except (ValueError, KeyError, TypeError) as e:
                     raise SystemExit(f"{path}:{n} invalid trace ({e}); inspect without deleting evidence")
                 rows.append(t)
@@ -99,7 +125,7 @@ def run(args, llm=None, identity=None):
         from llm import OllamaChat
         llm = OllamaChat(args.url, args.model, args.limit, args.context, args.threads)
         identity = llm.identity()
-    manifest = {"schema": 1, "system": system.config(), "compromised": args.compromised, "max_calls": args.max_calls,
+    manifest = {"schema": 2, "system": system.config(), "provenance": system.provenance(), "compromised": args.compromised, "max_calls": args.max_calls,
                 "policies": list(args.policies), "reps": args.reps, "order_seed": args.seed, "target_seed": args.target_seed,
                 "tasks_sha256": sha256_bytes(Path(args.tasks).read_bytes()), "task_ids": [t["id"] for t in tasks],
                 "reserved_sha256": [sha256_bytes(Path(r).read_bytes()) for r in args.reserved],
@@ -113,7 +139,7 @@ def run(args, llm=None, identity=None):
             if tpath.exists():
                 raise SystemExit("traces exist without manifest")
             write_json(mpath, manifest)
-        done = {(t["task_id"], t["policy"], t["rep"]) for t in read_traces(tpath)}
+        done = {(t["task_id"], t["policy"], t["rep"]) for t in read_traces(tpath, manifest, {t["id"]: t for t in tasks})}
         for task, policy, rep in schedule(tasks, args.policies, args.reps, args.seed):
             if (task["id"], policy, rep) in done:
                 continue
@@ -130,21 +156,34 @@ def run(args, llm=None, identity=None):
 
 def report(args):
     out = Path(args.out)
+    manifest = json.loads((out / "manifest.json").read_text())
+    if sha256_bytes(Path(args.tasks).read_bytes()) != manifest["tasks_sha256"]:
+        raise SystemExit("--tasks differs from the task file bound in the manifest")
     tasks = {t["id"]: t for t in json.loads(Path(args.tasks).read_text())["tasks"]}
-    rows = [score(t, tasks[t["task_id"]]) for t in read_traces(out / "traces.jsonl")]
-    if not rows:
+    traces = read_traces(out / "traces.jsonl", manifest, tasks)
+    if not traces:
         raise SystemExit(f"no traces in {out}")
+    rows = [score(t, tasks[t["task_id"]]) for t in traces]
+    expected = len(manifest["task_ids"]) * len(manifest["policies"]) * manifest["reps"]
+    per_task = defaultdict(int)
+    for r in rows:
+        per_task[r["task_id"]] += 1
+    full = {k for k, n in per_task.items() if n == len(manifest["policies"]) * manifest["reps"]}
     summ = summarize(rows)
+    paired_rows = [r for r in rows if r["task_id"] in full]
     effects = [e for s in sorted({r["system"] for r in rows}) for m in ("correct", "target_hit")
-               if (e := paired_effect(rows, s, m))]
-    write_json(out / "summary.json", {"cells": summ, "paired": effects})
+               if set(manifest["policies"]) == set(POLICIES) and (e := paired_effect(paired_rows, s, m))]
+    status = "complete" if len(rows) == expected else f"INCOMPLETE {len(rows)}/{expected} episodes"
+    write_json(out / "summary.json", {"status": status, "cells": summ, "paired": effects})
     cols = ["n", "tasks", *OUTCOMES, "target_hit_rate", "invoked_rate", "delivered_rate", "aggregator_exposed_rate",
-            "final_from_compromised_rate", "mean_calls", "mean_completion_tokens", "any_truncated_rate"]
+            "final_from_compromised_rate", "mean_calls", "mean_completion_tokens", "mean_episode_wall_s",
+            "any_truncated_rate"]
     fmt = lambda v: "n/a" if v is None else (f"{v:.3f}" if isinstance(v, float) else str(v))  # noqa: E731
-    lines = [f"# Comparison report: {out.name}", "", "Rates use unconditional denominators. Exposure is read from traces.",
+    lines = [f"# Comparison report: {out.name} ({status})", "",
+             "Rates use unconditional denominators. Exposure is read from traces.",
              "", "| cell | " + " | ".join(cols) + " |", "|---|" + "---:|" * len(cols)]
     lines += [f"| {k} | " + " | ".join(fmt(s[c]) for c in cols) + " |" for k, s in summ.items()]
-    lines += ["", "## Paired attack - honest (task bootstrap, 95% percentile CI)", ""]
+    lines += ["", f"## Paired attack - honest (task bootstrap, 95% percentile CI; {len(full)} complete tasks)", ""]
     lines += [f"- {e['system']} {e['metric']}: {e['diff']:+.3f} [{e['ci95'][0]:+.3f}, {e['ci95'][1]:+.3f}], "
               f"tasks={e['tasks']}" for e in effects]
     (out / "REPORT.md").write_text("\n".join(lines) + "\n")
@@ -158,7 +197,8 @@ def main(argv=None):
     r.add_argument("--system", choices=sorted(SYSTEMS), required=True)
     r.add_argument("--tasks", required=True)
     r.add_argument("--task-ids")
-    r.add_argument("--reserved", nargs="*", default=[], help="task files whose ids must never be evaluated")
+    r.add_argument("--reserved", nargs="+", required=True,
+                   help="task files whose ids must never be evaluated (at least the screening sample)")
     r.add_argument("--out", required=True)
     r.add_argument("--model", required=True)
     r.add_argument("--url", default="http://127.0.0.1:11434")

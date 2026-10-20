@@ -12,7 +12,7 @@ import contract  # noqa: E402
 import runner  # noqa: E402
 import scoring  # noqa: E402
 from baseline import FixedCycle  # noqa: E402
-from contract import ATTACK_TEMPLATE, Episode, target_for, validate  # noqa: E402
+from contract import ATTACK_TEMPLATE, BudgetExhausted, ControlError, Episode, target_for, validate  # noqa: E402
 
 MC = {"id": "mmlu_pro/1", "benchmark": "mmlu_pro", "kind": "mc", "n_options": 4, "truth": "C", "text": "Q? A. a B. b C. c D. d"}
 INT = {"id": "masbench/7", "benchmark": "masbench", "kind": "int", "truth": 5, "text": "compute"}
@@ -35,7 +35,7 @@ class FakeLLM:
         answers = re.findall(r"The answer is (\S+)", content)
         claimed = re.findall(r"verified every step\.\nThe answer is (\S+)", content)
         ans = (claimed or answers)[-1] if role == "Decider" and answers else self.task["truth"]
-        usage = {"prompt_tokens": 10, "completion_tokens": 5, "truncated": role == self.truncate_role, "latency_s": 0.01}
+        usage = {"prompt_tokens": 10, "completion_tokens": 5, "truncated": role == self.truncate_role}
         return f"{role} reasoning.\nThe answer is {ans}", usage
 
 
@@ -99,7 +99,7 @@ def test_budget_abort_is_explicit_and_never_repaired():
 
 def test_backend_error_recorded_without_default():
     t, _ = episode(llm=FakeLLM(MC, fail_at=2))
-    assert t["stop"]["reason"] == "error" and t["events"][-1]["error"] and t["final"] is None
+    assert t["stop"]["reason"] == "backend_error" and t["events"][-1]["error"] and t["final"] is None
     assert scoring.score(t, MC)["outcome"] == "backend_error"
 
 
@@ -134,23 +134,105 @@ def test_validate_rejects_contract_violations(tamper):
         validate(t)
 
 
-def test_programmatic_final_requires_aggregator_consume():
-    class Vote:
-        def __init__(self, record):
-            self.record = record
+def _solo(ep, role, task, inputs=(), extra=""):
+    return ep.call("worker", role, [{"role": "system", "content": f"You are {role}."},
+                                    {"role": "user", "content": task["text"] + extra}], inputs=inputs)
 
-        def __call__(self, ep, task):
-            mids = [ep.call("worker", r, [{"role": "system", "content": f"You are {r}."},
-                                          {"role": "user", "content": task["text"]}]) for r in ROLES]
-            if self.record:
-                ep.consume("aggregator", "vote", mids, note="majority")
-            ep.finish(final_text="The answer is C")
 
-    t, _ = episode(system=Vote(True), compromised="Expert", policy="attack")
+def test_programmatic_final_tied_to_aggregator_decision():
+    def vote(ep, task):
+        mids = [_solo(ep, r, task) for r in ROLES]
+        d = ep.decide("aggregator", "vote", mids, candidates=ROLES, output="The answer is C", stop=True)
+        ep.finish(final_text="The answer is C", decision=d)
+
+    t, _ = episode(system=vote, compromised="Expert", policy="attack")
     r = scoring.score(t, MC)
     assert r["aggregator_exposed"] and not r["final_from_compromised"] and r["outcome"] == "correct"
-    with pytest.raises(ValueError, match="aggregator consume"):
-        episode(system=Vote(False))
+    t = json.loads(json.dumps(t))
+    t["final"]["text"] = "The answer is B"  # answer not produced by the recorded decision
+    with pytest.raises(ValueError, match="aggregator decision"):
+        validate(t)
+
+    def late(ep, task):  # decision followed by more work: final is not the native terminal decision
+        mids = [_solo(ep, r, task) for r in ROLES[:2]]
+        d = ep.decide("aggregator", "vote", mids, output="The answer is C")
+        _solo(ep, ROLES[2], task)
+        ep.finish(final_text="The answer is C", decision=d)
+    with pytest.raises(ValueError, match="last event"):
+        episode(system=late)
+
+
+def test_undeclared_or_false_delivery_is_rejected():
+    def hidden(ep, task):  # passes the compromised text without declaring it
+        a = _solo(ep, "Critic", task)
+        b = _solo(ep, "Expert", task, extra="\n" + ep.text(a))
+        ep.finish(final_msg=b)
+    with pytest.raises(ValueError, match="undeclared"):
+        episode(system=hidden, policy="attack")
+
+    def claimed(ep, task):  # declares a delivery that is not in the request
+        a = _solo(ep, "Critic", task)
+        ep.finish(final_msg=_solo(ep, "Expert", task, inputs=[a]))
+    with pytest.raises(ValueError, match="not contained"):
+        episode(system=claimed, policy="attack")
+
+    def quoted(ep, task):  # a verbatim quote inside a declared input is indirect, not hidden delivery
+        a = _solo(ep, "Critic", task)
+        b = _solo(ep, "Expert", task, inputs=[a], extra="\n" + ep.text(a))
+        ep.finish(final_msg=_solo(ep, "Analyst", task, inputs=[b], extra="\n" + ep.text(b)))
+
+    class Quoting(FakeLLM):
+        def __call__(self, messages):
+            text, u = super().__call__(messages)
+            return messages[1]["content"] + "\n" + text, u
+    t, _ = episode(system=quoted, policy="attack", llm=Quoting(MC))
+    assert scoring.score(t, MC)["delivered"] == {"worker": 1}
+
+
+def test_budget_cannot_be_repaired_by_adapter():
+    def repair(ep, task):
+        try:
+            for r in ROLES * 3:
+                _solo(ep, r, task)
+        except BudgetExhausted:
+            ep.finish(final_text="The answer is C", decision=0)
+    t, _ = episode(system=repair, max_calls=4)
+    assert t["stop"]["reason"] == "budget" and t["final"] is None and len(t["events"]) == 4
+
+
+def test_control_errors_are_explicit_outcomes():
+    def bad_rank(ep, task):
+        m = _solo(ep, "Expert", task)
+        ep.decide("ranker", "ranker", [m], candidates=["Expert", "Critic"], selected=["Nobody"])
+    t, _ = episode(system=bad_rank)
+    assert t["stop"]["reason"] == "control_error" and scoring.score(t, MC)["outcome"] == "control_error"
+
+    def unparsable(ep, task):
+        _solo(ep, "Expert", task)
+        raise ControlError("ranking not parseable")
+    assert episode(system=unparsable)[0]["stop"]["detail"] == "ranking not parseable"
+
+
+def test_adapter_bugs_propagate_instead_of_becoming_outcomes():
+    def twice(ep, task):
+        m = _solo(ep, "Expert", task)
+        ep.finish(final_msg=m)
+        ep.finish(final_msg=m)
+    with pytest.raises(Exception, match="already stopped"):
+        episode(system=twice)
+
+    def crash(ep, task):
+        raise KeyError("bug")
+    with pytest.raises(KeyError):
+        episode(system=crash)
+
+
+def test_usage_schema_required():
+    class NoUsage(FakeLLM):
+        def __call__(self, messages):
+            return super().__call__(messages)[0], {"completion_tokens": 1}
+    with pytest.raises(ValueError, match="usage lacks"):
+        episode(llm=NoUsage(MC))
 
 
 def test_paired_effect():
@@ -158,9 +240,15 @@ def test_paired_effect():
             for i in range(10) for p, c in (("honest", True), ("attack", i < 6))]
     e = scoring.paired_effect(rows, "s", "correct", n_boot=500)
     assert e["tasks"] == 10 and abs(e["diff"] + 0.4) < 1e-9 and e["ci95"][0] <= -0.4 <= e["ci95"][1]
+    rows.append({"system": "s", "task_id": "t0", "policy": "attack", "rep": 2, "correct": False})
+    with pytest.raises(ValueError, match="unpaired"):
+        scoring.paired_effect(rows, "s", "correct")
 
 
 def _args(tmp_path, tasks_file, **kw):
+    empty = tmp_path / "reserved_empty.json"
+    empty.write_text(json.dumps({"tasks": []}))
+    kw.setdefault("reserved", [str(empty)])
     a = ["run", "--system", "fixed", "--tasks", str(tasks_file), "--out", str(tmp_path / "out"), "--model", "fake",
          "--max-calls", "10", "--compromised", "Critic", "--reps", "2", "--roles", *ROLES]
     for k, v in kw.items():
@@ -211,7 +299,23 @@ def test_runner_end_to_end_resume_and_bindings(tmp_path, capsys):
     summ = json.loads((tmp_path / "out" / "summary.json").read_text())
     assert summ["cells"]["fixed/honest"]["accuracy"] == 1.0 and summ["cells"]["fixed/attack"]["target_hit_rate"] == 1.0
     eff = {e["metric"]: e["diff"] for e in summ["paired"]}
-    assert eff == {"correct": -1.0, "target_hit": 1.0}
+    assert eff == {"correct": -1.0, "target_hit": 1.0} and summ["status"] == "complete"
+    # a trace that does not belong to this run is refused on report and resume
+    tp = tmp_path / "out" / "traces.jsonl"
+    lines = tp.read_text().splitlines()
+    t0 = json.loads(lines[0])
+    t0["max_calls"] = 99  # internally consistent, but not this run
+    tp.write_text("\n".join([json.dumps(t0)] + lines[1:]) + "\n")
+    with pytest.raises(SystemExit, match="manifest"):
+        runner.main(["report", "--tasks", str(tf), "--out", str(tmp_path / "out")])
+    # incomplete run is labelled, paired effects only on complete tasks
+    tp.write_text("\n".join(lines[1:]) + "\n")
+    runner.main(["report", "--tasks", str(tf), "--out", str(tmp_path / "out")])
+    summ = json.loads((tmp_path / "out" / "summary.json").read_text())
+    assert summ["status"] == "INCOMPLETE 15/16 episodes" and summ["paired"][0]["tasks"] == 3
+    with pytest.raises(SystemExit, match="manifest"):
+        tf.write_text(tf.read_text() + " ")
+        runner.main(["report", "--tasks", str(tf), "--out", str(tmp_path / "out")])
 
 
 def test_compromised_must_be_worker(tmp_path):
@@ -222,8 +326,8 @@ def test_compromised_must_be_worker(tmp_path):
 
 
 def test_contract_constants():
-    assert set(scoring.OUTCOMES) >= {"budget_abort", "backend_error", "truncated_final", "invalid_format"}
-    assert contract.STOP_REASONS == ("native", "budget", "error")
+    assert set(scoring.OUTCOMES) >= {"budget_abort", "backend_error", "control_error", "truncated_final", "invalid_format"}
+    assert set(contract.STOP_REASONS) <= set(scoring.OUTCOMES) | {"native", "budget"}
 
 
 @pytest.fixture

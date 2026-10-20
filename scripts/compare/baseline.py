@@ -39,18 +39,22 @@ class FixedCycle:
         return {"system": self.name, "roles": self.roles, "rounds": self.rounds, "decider": self.decider,
                 "calls_per_episode": len(self.roles) * self.rounds + 1}
 
+    def provenance(self):
+        """Hashes of upstream code/checkpoints/configs outside scripts/compare (none for the reference)."""
+        return {}
+
     def worker_identities(self):
         return list(self.roles)
 
     def __call__(self, ep, task):
         delivered = []
-        for _ in range(self.rounds):
+        for r in range(self.rounds):
             for role in self.roles:
                 user = f"Task:\n{task['text']}"
                 if delivered:
                     user += f"\n\nPrevious agents:\n\n{history_block(ep, delivered)}\n\nGive your own answer."
                 msgs = [{"role": "system", "content": system_prompt(role, task)}, {"role": "user", "content": user}]
-                delivered.append(ep.call("worker", role, msgs, inputs=delivered))
+                delivered.append(ep.call("worker", role, msgs, inputs=delivered, round=r))
         user = (f"Task:\n{task['text']}\n\nAgents:\n\n{history_block(ep, delivered)}\n\n"
                 "Weigh all agents and give the final answer.")
         msgs = [{"role": "system", "content": system_prompt(self.decider, task)}, {"role": "user", "content": user}]
