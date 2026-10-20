@@ -20,7 +20,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from baseline import FixedCycle  # noqa: E402
 from dylan import DyLAN  # noqa: E402
-from contract import POLICIES, Episode, target_for, validate  # noqa: E402
+from contract import POLICIES, Episode, target_for, trace_attack, validate  # noqa: E402
 from scoring import OUTCOMES, paired_effect, score, summarize  # noqa: E402
 
 FIXED_ROLES = ["Knowledgeable Expert", "Critic", "Analyst"]
@@ -99,6 +99,11 @@ def check_against_manifest(t, manifest, tasks):
           and t["system"] == manifest["system"]["system"] and t["compromised"] == manifest["compromised"]
           and t["max_calls"] == manifest["max_calls"] and t["policy"] in manifest["policies"]
           and 1 <= t["rep"] <= manifest["reps"] and t["target"] == target_for(task, manifest["target_seed"]))
+    attack = manifest.get("attack", {"form": "bare"})
+    ta = trace_attack(t)
+    ok = ok and ta["form"] == attack["form"]
+    if ok and attack["form"] == "persuasive":
+        ok = sha256_bytes(ta["text"].encode()) == attack["text_sha256"].get(t["task_id"])
     if not ok:
         raise SystemExit(f"trace {t['task_id']}/{t['policy']}/rep{t['rep']} does not match the manifest")
 
@@ -122,11 +127,32 @@ def read_traces(path, manifest=None, tasks=None):
     return rows
 
 
+def load_attack(args, tasks):
+    """Bare: fixed template. Persuasive: frozen per-task texts from attack_texts.py, bound by hash."""
+    if args.attack_form == "bare":
+        if args.attack_texts:
+            raise SystemExit("--attack-texts is only valid with --attack-form persuasive")
+        return {"form": "bare"}, {}
+    if not args.attack_texts:
+        raise SystemExit("--attack-form persuasive needs --attack-texts")
+    data = json.loads(Path(args.attack_texts).read_text())
+    texts = {}
+    for t in tasks:
+        entry = data["texts"].get(t["id"])
+        if entry is None or entry["target"] != target_for(t, args.target_seed):
+            raise SystemExit(f"attack texts lack task {t['id']} or use another target")
+        texts[t["id"]] = entry["text"]
+    meta = {"form": "persuasive", "file_sha256": sha256_bytes(Path(args.attack_texts).read_bytes()),
+            "text_sha256": {k: sha256_bytes(v.encode()) for k, v in texts.items()}}
+    return meta, texts
+
+
 def run(args, llm=None, identity=None):
     system = SYSTEMS[args.system](args)
     if args.compromised not in system.worker_identities():
         raise SystemExit(f"--compromised must be one of {system.worker_identities()}")
     tasks = load_tasks(args.tasks, args.task_ids, args.reserved)
+    attack, attack_texts = load_attack(args, tasks)
     if llm is None:
         from llm import OllamaChat
         llm = OllamaChat(args.url, args.model, args.limit, args.context, args.threads)
@@ -136,6 +162,8 @@ def run(args, llm=None, identity=None):
                 "tasks_sha256": sha256_bytes(Path(args.tasks).read_bytes()), "task_ids": [t["id"] for t in tasks],
                 "reserved_sha256": [sha256_bytes(Path(r).read_bytes()) for r in args.reserved],
                 "model": identity, "source": source_digest()}
+    if attack["form"] != "bare":
+        manifest["attack"] = attack  # bare manifests stay identical to schema-2 runs
     out = Path(args.out)
     with lock(out):
         mpath, tpath = out / "manifest.json", out / "traces.jsonl"
@@ -150,7 +178,8 @@ def run(args, llm=None, identity=None):
             if (task["id"], policy, rep) in done:
                 continue
             ep = Episode(system=args.system, task=task, policy=policy, rep=rep, compromised=args.compromised,
-                         llm=llm, max_calls=args.max_calls, target_seed=args.target_seed)
+                         llm=llm, max_calls=args.max_calls, target_seed=args.target_seed,
+                         attack_form=attack["form"], attack_text=attack_texts.get(task["id"]))
             trace = ep.run(lambda e: system(e, task))
             with tpath.open("a") as f:
                 f.write(json.dumps(trace) + "\n")
@@ -221,6 +250,8 @@ def main(argv=None):
     r.add_argument("--threads", type=int)
     r.add_argument("--seed", type=int, default=20261020)
     r.add_argument("--target-seed", type=int, default=0)
+    r.add_argument("--attack-form", choices=["bare", "persuasive"], default="bare")
+    r.add_argument("--attack-texts", help="frozen persuasive texts (attack_texts.py generate)")
     p = sub.add_parser("report")
     p.add_argument("--tasks", required=True)
     p.add_argument("--out", required=True)

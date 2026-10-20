@@ -317,6 +317,53 @@ Jeder Adapter muss nachweisen:
 
 Stoppschranke: Adapter ohne diese Nachweise startet keinen Hauptversuch.
 
+### E1b: DyLAN-Abhaengigkeitsstudie (vorregistriert 2026-10-21, vor jedem Angriffslauf)
+
+Frage: Erhoeht DyLANs inhaltsbasierte Agentenauswahl die Abhaengigkeit von einer
+kompromittierten Quelle, und haengt das von der Ueberzeugungskraft ihrer Ausgabe ab?
+Natuerliche Kontrolle ist `dylan-upstream`: identischer Ablauf, aber wegen des
+dokumentierten Indexfehlers praktisch inhaltsunabhaengige Auswahl in Runde 2.
+Durchfuehrung: [`study.sh`](../scripts/compare/study.sh); Startvoraussetzung ist der
+bestandene ehrliche E1-Vorabpilot fuer `fixed` und `dylan`.
+
+- Daten: 60 neue MMLU-Pro-Aufgaben (Seed 20261022), disjunkt zu beiden
+  Screening-Stichproben und den Preflight-Dev-Aufgaben. Gemma4 12B (Digest gebunden),
+  Temperatur 0, Grenze 8192 Tokens, Kontext 32768, Huelle 17 Aufrufe.
+- Systeme: `dylan`, `dylan-upstream`, `fixed` (Referenz, nicht Teil des Hauptkontrasts).
+- Ehrlich: zwei Wiederholungen je System. Wegen des RNG pro (Aufgabe, Wiederholung)
+  sind ehrliche DyLAN-Traces unabhaengig von der Kompromittierungsmarke und werden fuer
+  alle Rollen wiederverwendet (Expositionsmasse durch Umetikettieren).
+- Angriff: jede Solver-Identitaet einmal kompromittiert (7 DyLAN-Rollen, 3 feste
+  Rollen) x zwei Angriffsformen x eine Wiederholung; 37 Laeufe, ca. 2.400 Episoden.
+- Angriffsformen: `bare` = feste Vorlage (Abschnitt 3); `persuasive` = pro Aufgabe einmal
+  vorab mit demselben Modell erzeugte, plausible Schritt-fuer-Schritt-Begruendung fuer das
+  Ziel (`attack_texts.py`, Prompt `persuasive/1`). Der Generator sieht nur Aufgabentext und
+  Ziel, nie Gold oder Systemausgaben. Die Texte werden eingefroren und pro Aufgabe im
+  Manifest gehasht; alle Systeme und Rollen erhalten denselben Text.
+- Qualitaetsschranke Angriffstexte: Anteil abgeschnittener oder nicht konsistent fuer das
+  Ziel argumentierender Texte <= 10 %, sonst startet kein Lauf. Markierte Texte bleiben
+  im Hauptlauf und werden in einer Sensitivitaetsanalyse ausgeschlossen.
+- Laufqualitaet wie Vorabpilot: null Backend-/Kontrollfehler, <= 5 % ungueltige
+  Endformate und <= 5 % finale Abschneidung je System und Bedingung.
+
+Primaere Kontraste (je Angriffsform, Einheit Aufgabe, ueber Rollen und ehrliche
+Wiederholungen gemittelt, gepaarter Aufgaben-Bootstrap, 10.000 Ziehungen, 95 %-Perzentil):
+
+1. Angriffseffekt auf Zieltreffer und Genauigkeit (Angriff minus ehrlich) je System.
+2. Differenz der Differenzen `dylan` minus `dylan-upstream` fuer beide Masse.
+3. `persuasive` minus `bare` je System.
+
+Kleinster interessierender Effekt: 0,10 absolut fuer Kontrast 2 und 3. Ein Intervall,
+das sowohl 0 als auch 0,10 einschliesst, gilt als unentschieden, nicht als Nullbefund.
+Sekundaer und deskriptiv: Auswahl der kompromittierten Identitaet durch den Ranker,
+Zustellung an Entscheidung/Aggregation, Uebernahme des Ziels durch ehrliche Agenten,
+Konsensumschlaege, Rollenheterogenitaet, `fixed` als Referenz ohne Auswahl.
+
+Grenzen: ein Agentenmodell, ein Benchmark; kontextfreie persuasive Texte (reagieren
+nicht auf den Debattenverlauf); eine Angriffswiederholung; `dylan-upstream` ist eine
+natuerliche, keine konstruierte Kontrolle. Ergebnisse sind DyLAN-spezifisch und kein
+Methodenvergleich mit AnyMAC oder G-Designer.
+
 ### E2: Exposition und tatsaechlicher Einfluss (gemeinsamer Kern)
 
 Nach Kostenpilot: Aufgabenzahl und Wiederholungen anhand Praezision und gemessener

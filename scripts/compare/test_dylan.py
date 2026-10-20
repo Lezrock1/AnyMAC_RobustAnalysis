@@ -226,7 +226,7 @@ def test_roles_and_runner_registration(tmp_path):
         p = runner.argparse.Namespace(system=system, tasks=str(tf), task_ids=None, reserved=[str(res)], out=str(out),
                                       model="fake", policies=["honest", "attack"], reps=1, max_calls=17,
                                       compromised="Lawyer", roles=None, rounds=1, ranker_fallback="native",
-                                      seed=20261020, target_seed=0)
+                                      seed=20261020, target_seed=0, attack_form="bare", attack_texts=None)
         runner.run(p, llm=lambda m: (respond(m, "1"), dict(USAGE)), identity={"digest": "x"})
         man = json.loads((out / "manifest.json").read_text())
         assert man["system"]["system"] == system and man["system"]["upstream"].endswith("006e440a519f7cf21e2826f3b8033d84ae9bf07c")
