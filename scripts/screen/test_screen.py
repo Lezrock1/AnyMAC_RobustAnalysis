@@ -99,3 +99,45 @@ def test_end_to_end_with_fake_ollama(tmp_path):
     with pytest.raises(SystemExit):
         screen.main(argv[:-2] + ["--url", f"http://127.0.0.1:{port}", "--limit", "8192"])  # manifest mismatch
     loop.call_soon_threadsafe(loop.stop)
+
+
+def test_round2_sample_excludes_reserved_and_round1_unchanged():
+    import random
+    rows = [{"id": f"x/{i}"} for i in range(100)]
+    assert screen.sample_rows(rows, 10, random.Random(1), set()) == random.Random(1).sample(rows, 10)
+    excl = {f"x/{i}" for i in range(50)}
+    picked = screen.sample_rows(rows, 40, random.Random(2), excl)
+    assert len(picked) == 40 and not excl & {r["id"] for r in picked}
+
+
+def test_tolerant_fallback_uses_wilson_but_keeps_strict_parts():
+    base = {"n": 80, "errors": 0, "thinking_leak": 0, "format_valid": 0.975, "final_truncated": 0.025,
+            "repeat_agreement": 0.85, "repeat_agreement_pairs": 40, "accuracy": 0.775}
+    assert not screen.eligible(base, "chain3") and screen.tolerant(base, "chain3")  # Gemma r1 chain3: 0.85 in [0.71, 0.93]
+    assert not screen.tolerant({**base, "repeat_agreement": 0.68}, "chain3")        # GLM r1: [0.52, 0.81]
+    assert not screen.tolerant({**base, "final_truncated": 0.125}, "single")       # Qwen3-30B r1: [0.07, 0.22]
+    assert not screen.tolerant({**base, "errors": 1}, "chain3")
+    assert not screen.tolerant({**base, "accuracy": 0.875}, "single")             # window stays strict
+    lo, hi = screen.wilson(0.85, 40)
+    assert abs(lo - 0.709) < 1e-3 and abs(hi - 0.929) < 1e-3
+
+
+def test_mtp_check_decision(tmp_path, monkeypatch):
+    import mtp_check
+    task = {"id": "mmlu_pro/1", "benchmark": "mmlu_pro", "kind": "mc", "n_options": 4, "text": "q", "truth": "A"}
+    (tmp_path / "t.json").write_text(json.dumps({"tasks": [task]}))
+    ref = {"task_id": "mmlu_pro/1", "benchmark": "mmlu_pro", "error": None, "pred": "A", "outputs": ["x"],
+           "calls": [{"completion_tokens": 100, "eval_s": 4.0}]}
+    (tmp_path / "r.jsonl").write_text(json.dumps(ref) + "\n")
+
+    async def fake_episode(session, url, model, t, condition, rep, args):
+        assert args.limit == 4096 and args.context == 16384 and condition == "single"
+        return {"pred": "A", "error": None, "outputs": ["x"], "calls": [{"completion_tokens": 100, "eval_s": 2.0}]}
+    monkeypatch.setattr(mtp_check.screen, "episode", fake_episode)
+    monkeypatch.setattr(mtp_check.screen, "capabilities", lambda u, m: ["completion"])
+    monkeypatch.setattr(mtp_check.screen, "model_identity", lambda u, m: {"digest": "d"})
+    mtp_check.main(["--tasks", str(tmp_path / "t.json"), "--reference", str(tmp_path / "r.jsonl"),
+                    "--model", "m", "--out", str(tmp_path / "o.json")])
+    res = json.loads((tmp_path / "o.json").read_text())
+    assert res["speedup"] == 2.0 and res["use_mtp"] and res["same_text"] == 1
+    assert '"use_mtp": true' in (tmp_path / "o.json").read_text()  # run.sh greps this exact form

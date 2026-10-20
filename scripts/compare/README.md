@@ -45,7 +45,8 @@ Implements the E1 adapter obligations of [COMPARATIVE_PROTOCOL.md](../../docs/CO
   model digest/options, the system configuration or the adapter's `provenance()` (upstream commit,
   checkpoint and config hashes; helper `runner.file_hashes`) change, and when any trace does not match
   the manifest (system, compromised identity, budget, policies, reps, task ids, recomputed target).
-  `--reserved` is mandatory (fail closed); screening tasks (`results/screen/screen_tasks_v1.json`) are
+  `--reserved` is mandatory (fail closed); screening tasks (`results/screen/screen_tasks_v1.json` and
+  `screen_tasks_r2.json`) are
   refused. Incomplete runs are labelled `INCOMPLETE n/N` in the report; paired effects use complete
   tasks only.
 

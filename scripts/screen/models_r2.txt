@@ -1,0 +1,9 @@
+# Round 2 (README): MMLU-Pro only, limit 8192, context 32768, new reserved sample.
+# Re-test of the closest round-1 candidate (MoE, 3.8B active, 16 GB).
+gemma4:26b-a4b-it-qat
+# Dense Gemma 4, QAT for 4-bit, 7.2 GB (dense models were deterministic in round 1).
+gemma4:12b-it-qat
+# Dense Gemma 4, QAT for 4-bit, 19 GB.
+gemma4:31b-it-qat
+# Dense Qwen3.8; replaced by qwen3.8:27b-mtp-q4_K_M if `run.sh mtpcheck` gives use_mtp=true.
+qwen3.8:27b-q4_K_M

@@ -65,25 +65,43 @@ def mc_rows(name, df):
     return sorted(rows, key=lambda x: x["id"])
 
 
+def reserved_ids(paths):
+    return {t["id"] for p in paths for t in json.loads(Path(p).read_text())["tasks"]}
+
+
+def sample_rows(rows, n, rng, exclude):
+    """Sample n rows whose ids are not reserved. Without exclusions identical to round 1 (rng.sample on all rows)."""
+    pool = [r for r in rows if r["id"] not in exclude]
+    return rng.sample(pool, n)
+
+
 def prepare(args):
     import pandas as pd
     from huggingface_hub import hf_hub_download
 
     if args.tasks.exists():
         raise SystemExit(f"{args.tasks} exists; the screening sample is frozen. Use a new path for a new sample.")
-    rng = random.Random(SAMPLE_SEED)
+    exclude = reserved_ids(args.exclude)
+    rng = random.Random(args.seed)
     tasks, sources = [], {}
     for name, spec in DATASETS.items():
+        if name not in args.benchmarks:
+            continue
         path = Path(hf_hub_download(spec["repo"], spec["file"], repo_type="dataset", revision=spec["revision"]))
-        sources[name] = {**spec, "sha256": sha256(path)}
-        tasks += [{**t, "benchmark": name, "kind": "mc"} for t in rng.sample(mc_rows(name, pd.read_parquet(path)), spec["n"])]
-    splits = json.loads(args.splits.read_text())
-    for i in splits["ids"]["dev"]:  # MASBench dev: continuity anchor, already used for honest calibration only
-        t = splits["tasks"][i]
-        tasks.append({"id": f"masbench/{i}", "benchmark": "masbench", "kind": "int", "subject": f"breadth{t['breadth']}",
-                      "text": t["problem"], "truth": int(t["truth"])})
-    sources["masbench"] = {"splits": str(args.splits), "sha256": sha256(args.splits), "split": "dev"}
-    write_json(args.tasks, {"schema": 1, "sample_seed": SAMPLE_SEED, "sources": sources, "tasks": tasks,
+        sources[name] = {**spec, "n": args.n or spec["n"], "sha256": sha256(path)}
+        rows = sample_rows(mc_rows(name, pd.read_parquet(path)), args.n or spec["n"], rng, exclude)
+        tasks += [{**t, "benchmark": name, "kind": "mc"} for t in rows]
+    if "masbench" in args.benchmarks:
+        splits = json.loads(args.splits.read_text())
+        for i in splits["ids"]["dev"]:  # MASBench dev: continuity anchor, already used for honest calibration only
+            t = splits["tasks"][i]
+            tasks.append({"id": f"masbench/{i}", "benchmark": "masbench", "kind": "int", "subject": f"breadth{t['breadth']}",
+                          "text": t["problem"], "truth": int(t["truth"])})
+        sources["masbench"] = {"splits": str(args.splits), "sha256": sha256(args.splits), "split": "dev"}
+    if exclude & {t["id"] for t in tasks}:
+        raise SystemExit("new sample overlaps reserved ids")
+    write_json(args.tasks, {"schema": 1, "sample_seed": args.seed, "sources": sources, "tasks": tasks,
+                            "excluded_from": [str(p) for p in args.exclude],
                             "note": "Reserved: these task ids must be excluded from every later evaluation."})
     print(f"wrote {args.tasks}: " + ", ".join(f"{b}={sum(t['benchmark'] == b for t in tasks)}"
                                               for b in ("mmlu", "mmlu_pro", "masbench")))
@@ -281,6 +299,7 @@ def summarize(rows):
             "any_truncated": sum(r["any_truncated"] for r in rows) / n,
             "thinking_leak": sum(r["thinking_leak"] for r in rows),
             "repeat_agreement": (sum(len(set(v.values())) == 1 for v in pairs) / len(pairs)) if pairs else None,
+            "repeat_agreement_pairs": len(pairs),
             "output_tok_per_s": sum(c["completion_tokens"] for c in calls) / eval_s if eval_s else 0.0,
             "wall_s_per_episode": sum(c["wall_s"] for c in calls) / n,
             "acc_mod23": (sum(u is not None and u % 23 == r["truth"] for r, u in mod) / len(mod)) if mod else None,
@@ -295,12 +314,33 @@ def eligible(s, condition):
             and (condition != "single" or lo <= s["accuracy"] <= hi))
 
 
+def wilson(p, n, z=1.96):
+    if not n:
+        return (0.0, 1.0)
+    c = (p + z * z / (2 * n)) / (1 + z * z / n)
+    h = z * (p * (1 - p) / n + z * z / (4 * n * n)) ** 0.5 / (1 + z * z / n)
+    return (c - h, c + h)
+
+
+def tolerant(s, condition):
+    """Fallback of round 2 (registered 2026-10-20, before round 2): errors, thinking and the accuracy window stay
+    strict; format, final truncation and repeat agreement pass if the threshold lies inside the 95% Wilson interval."""
+    lo, hi = CRITERIA["accuracy_window"]
+    n_pairs = s["repeat_agreement_pairs"]
+    return (s["errors"] <= CRITERIA["max_errors"] and s["thinking_leak"] == 0
+            and wilson(s["format_valid"], s["n"])[1] >= CRITERIA["min_format_valid"]
+            and wilson(s["final_truncated"], s["n"])[0] <= CRITERIA["max_final_truncated"]
+            and s["repeat_agreement"] is not None
+            and wilson(s["repeat_agreement"], n_pairs)[1] >= CRITERIA["min_repeat_agreement"]
+            and (condition != "single" or lo <= s["accuracy"] <= hi))
+
+
 def report(args):
     lines = ["# Model x benchmark screening (honest only)", "", f"Pre-registered criteria: `{json.dumps(CRITERIA)}`", "",
              "Accuracy window applies to `single`; all other criteria to every cell. Incomplete models are marked.",
              "*acc mod23: sensitivity only (integer answer reduced mod 23 by us); never used for eligibility.", "",
-             "| model | benchmark | cond | n | acc | format | errors | final trunc | any trunc | rep agree | acc mod23* | tok/s | s/episode | eligible |",
-             "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|"]
+             "| model | benchmark | cond | n | acc | format | errors | final trunc | any trunc | rep agree | acc mod23* | tok/s | s/episode | eligible | tolerant** |",
+             "|---|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---|---|"]
     summary = {}
     if not args.out.is_dir():
         raise SystemExit(f"no results in {args.out} yet")
@@ -313,12 +353,13 @@ def report(args):
         for (bench, cond), g in sorted(groups.items()):
             s = summarize(g)
             s["eligible"] = eligible(s, cond)
+            s["tolerant"] = tolerant(s, cond)
             summary[f"{mdir.name}/{bench}/{cond}"] = s
             ra = "n/a" if s["repeat_agreement"] is None else f"{s['repeat_agreement']:.2f}"
             lines.append(f"| {name} | {bench} | {cond} | {s['n']} | {s['accuracy']:.3f} | {s['format_valid']:.3f} | "
                          f"{s['errors']} | {s['final_truncated']:.3f} | {s['any_truncated']:.3f} | {ra} | "
                          f"{'n/a' if s['acc_mod23'] is None else format(s['acc_mod23'], '.3f')} | "
-                         f"{s['output_tok_per_s']:.1f} | {s['wall_s_per_episode']:.1f} | {s['eligible']} |")
+                         f"{s['output_tok_per_s']:.1f} | {s['wall_s_per_episode']:.1f} | {s['eligible']} | {s['tolerant']} |")
     lines += ["", "## Chain gain (accuracy chain3 - single, pooled over repetitions)", ""]
     for key in sorted(k for k in summary if k.endswith("/single")):
         c = summary.get(key[:-len("single")] + "chain3")
@@ -326,7 +367,8 @@ def report(args):
             lines.append(f"- {key[:-len('/single')]}: {c['accuracy'] - summary[key]['accuracy']:+.3f}")
     lines += ["", "Selection rule (pre-registered): eligible model x benchmark pairs only (single AND chain3);",
               "prefer non-negative chain gain, then higher throughput. No attack outcome is used.",
-              "Small n: descriptive screening, not a model ranking."]
+              "Small n: descriptive screening, not a model ranking.",
+              "**tolerant: fallback of round 2 only (see README); thresholds inside the 95% Wilson interval."]
     write_json(args.out / "summary.json", summary)
     (args.out / "REPORT.md").write_text("\n".join(lines) + "\n")
     print("\n".join(lines))
@@ -338,6 +380,10 @@ def main(argv=None):
     p = sub.add_parser("prepare")
     p.add_argument("--splits", type=Path, required=True)
     p.add_argument("--tasks", type=Path, required=True)
+    p.add_argument("--benchmarks", nargs="+", default=["mmlu", "mmlu_pro", "masbench"])
+    p.add_argument("--n", type=int, default=None, help="items per MC benchmark (default: DATASETS)")
+    p.add_argument("--seed", type=int, default=SAMPLE_SEED)
+    p.add_argument("--exclude", nargs="*", type=Path, default=[], help="task files whose ids are reserved")
     r = sub.add_parser("run")
     r.add_argument("--tasks", type=Path, required=True)
     r.add_argument("--out", type=Path, required=True)
