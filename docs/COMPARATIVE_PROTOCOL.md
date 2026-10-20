@@ -274,7 +274,9 @@ Naechste Implementationsreihenfolge:
    `scripts/screen/README.md`. Waehlt Agentenmodell und Benchmark fuer E1-E3. Das Pilotmodell
    `qwen3:30b-a3b-instruct-2507` (Juli 2025) ist nur Kontinuitaetsanker. Screening-Aufgaben sind
    reserviert und in keiner spaeteren Evaluation zulaessig.
-1. Gemeinsamer Ereignisvertrag, Scoring und fixe Referenz mit Tests.
+1. Gemeinsamer Ereignisvertrag, Scoring und fixe Referenz mit Tests: implementiert in
+   [`scripts/compare`](../scripts/compare/README.md) (lokal getestet, noch nicht auf Ramses gelaufen).
+   Rollenpool, kompromittierte Identitaet, Aufrufhuelle und neuer Split werden nach dem Screening fixiert.
 2. DyLAN-Adapter, gepinnter offizieller Auswahl-/Stopppfad.
 3. G-Designer-Audit (Lizenz, Paper/Code-Abweichungen) und Adapter; MasRouter nur als Rueckfall.
 4. Lokal gemockter End-to-End-Test aller Adapter; dann E1 auf Ramses.
