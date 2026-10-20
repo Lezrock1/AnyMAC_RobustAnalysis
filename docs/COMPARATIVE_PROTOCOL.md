@@ -4,7 +4,8 @@ Status: Entwurf vom 19.10.2026, noch kein eingefrorenes Hauptversuchsprotokoll.
 Dieser Entwurf erweitert den Gegenstand ueber AnyMAC hinaus. Er aendert weder das
 [historische AnyMAC-Protokoll](./PROTOCOL.md) noch bereits gespeicherte Ergebnisse.
 Die [isolierten Folgetests](../scripts/followup/README.md) sind implementiert;
-Adapter fuer weitere Router sind noch NICHT implementiert oder auf Ramses validiert.
+Feste Referenz und DyLAN sind lokal getestet; AnyMAC-/G-Designer-Adapter und die
+Ramses-Validierung der gemeinsamen Schicht stehen noch aus.
 
 ## Ziel und Ressourcen
 
@@ -12,6 +13,102 @@ Untersucht wird, wie Routing und Kommunikation in LLM-Multi-Agent-Systemen die
 Exposition gegenueber einem kompromittierten Agenten in tatsaechlichen Einfluss
 auf das Ergebnis uebersetzen. Markerlernen und sauberes Weitertraining sind
 Teiluntersuchungen fuer geeignete lernende Router, nicht die gemeinsame Hauptfrage.
+
+### Beschlossene Forschungsprioritaet (2026-10-20)
+
+Leitfrage: Wann wird kompetenzorientierte Zusammenarbeit zur Abhaengigkeit von
+einer unzuverlaessigen Quelle, und koennen adaptive Routing- und
+Kontextentscheidungen diese Abhaengigkeit erkennen und begrenzen?
+
+1. **Hauptvergleich:** AnyMAC, G-Designer, DyLAN und feste Referenz auf MMLU-Pro.
+   Agentenmodell ist nach abgeschlossenem Screening und expliziter
+   Nutzerentscheidung Gemma4 12B; Auswahlabweichung und Vorbehalte siehe unten.
+2. **A -- zentraler Beitrag:** Ehrliche Kompetenz, Auswahl und Zustellung auf
+   getrennten Entwicklungsaufgaben messen; danach die Wirkung einer kontrollierten
+   falschen Ausgabe einer vorab festgelegten Worker-Identitaet untersuchen.
+   Rollenrotation auf einer vorab bestimmten Teilmenge verhindert die nachtraegliche
+   Auswahl nur der verwundbarsten Rolle. Der Vergleich trennt Gesamtschaden,
+   beobachtbare Routingreaktion und Nutzung ehrlicher Korrekturen.
+3. **B -- Erklaerung durch Eingriffe:** Auf einer vorab festgelegten Teilmenge
+   gespeicherte Prefixe kontrolliert fortsetzen. Unveraenderte Fortsetzung als
+   Sham wiederholen; Nachrichtenersetzung, Informationsentzug und, soweit
+   methodisch sinnvoll, festgehaltene Auswahl/Zustellung getrennt untersuchen.
+   Pruefen, ob ehrliche Weiterverarbeitung eine einzelne falsche Quelle in mehrere
+   scheinbar unabhaengige Bestaetigungen verwandelt. Trace-Erreichbarkeit allein
+   beweist weder Aussagenuebernahme noch kausalen Einfluss. Provenienz- oder
+   Unabhaengigkeitskontrollen sind explizite Ablationen, keine nativen Verfahren.
+4. **C -- bedingte AnyMAC-Vertiefung:** Erst nach bestandenen Lernkontrollen und
+   einem messbaren Ausgangseffekt pruefen, ob sauberes Router-Weitertraining
+   Abhaengigkeiten beseitigt oder nur ehrliche Aufgabenleistung verbessert.
+   Dabei werden Routergewichte aktualisiert, nicht die Gewichte des Agenten-LLMs.
+   Keine Gewichtsupdates waehrend der gemeinsamen Evaluation; keine kuenstliche
+   Uebertragung dieser Trainingsfrage auf DyLAN.
+
+MASBench bleibt hoechstens ein spaeterer kleiner Zusatz zur kontrollierten
+Aufgabenstruktur, nicht die Hauptbenchmark. Bestehende Format- und
+Trunkierungsprobleme muessen vor einem solchen Zusatz separat geloest werden.
+
+Dies ist eine priorisierte Forschungshypothese, kein bestaetigter Neuheitsanspruch
+und noch kein eingefrorener Hauptversuchsplan. Ein kontrollierter Verhaltenswechsel
+ist keine nachgewiesene gelernte Backdoor. Ohne beobachtbare Fehlersignale wird
+keine Erkennung eines zuvor unauffaelligen kompromittierten Agenten vorausgesetzt.
+Online-Reaktionen innerhalb einer Episode und Lernen zwischen Aufgaben werden
+getrennt; persistente Zustaende und Reset-Regeln sind vor dem Pilot festzulegen.
+Stichproben, Eingriffspunkte, Budgets und konkrete Kontraste werden vor dem
+Hauptversuch fixiert. Die Kontraste sind nicht automatisch eine additive kausale
+Zerlegung.
+
+Literaturanker fuer diese Priorisierung: MAS-Orchestra
+([2601.14652v5](https://arxiv.org/abs/2601.14652v5), insbesondere Anhang C.2),
+Collective Evidence-Threshold Backdoors
+([2608.01085](https://arxiv.org/abs/2608.01085), insbesondere Tabellen 29--30),
+Malice in Agentland ([2510.05159v5](https://arxiv.org/abs/2510.05159v5),
+Abschnitte 5.2 und 5.4) und Linguistic Firewall
+([2606.30555v3](https://arxiv.org/abs/2606.30555v3), insbesondere Anhang B.11).
+Guided Topology Diffusion (ACL 2026), Abschnitt 5.3 und Anhang A/K, motiviert
+die Unterscheidung zwischen vorab erzeugter Topologie, zufaelligen Agentenfehlern
+und verhaltensabhaengiger Koordination. Diese Arbeiten sind Anknuepfungspunkte,
+keine pauschal reproduzierten Angriffsmodelle.
+
+### Agentenmodellauswahl nach Screening (2026-10-20)
+
+Alle vier Modelle der zweiten Screening-Runde haben laut Ramses-Bericht beide
+Bedingungen streng bestanden; alle vier `COMPLETE.json` liegen vor.
+Die registrierte Regel (nichtnegativer Chain-Gain, dann niedrigere mittlere
+Chain3-Laufzeit) ergibt **Gemma4 26B**, nicht 12B. Diese Regel und die
+Screening-Ergebnisse werden nicht nachtraeglich geaendert.
+
+Der Nutzer waehlt nach Einsicht in die ehrlichen Screening-Ergebnisse ausdruecklich
+**`gemma4:12b-it-qat`** fuer die neue Vergleichsstudie. Dies ist eine
+ergebnisinformierte Abweichung von der registrierten Auswahl, vor neuen
+vergleichenden Angriffsexperimenten, keine praeregistrierte Siegerauswahl.
+
+| Screening-Messwert | Gemma4 12B | Gemma4 26B |
+|---|---:|---:|
+| Single korrekt | 64/80 | 63/80 |
+| Chain3 korrekt | 68/80 | 64/80 |
+| Wiederholungsuebereinstimmung Single / Chain3 | 40/40 / 40/40 | 37/40 / 38/40 |
+| Finale Trunkierungen Single / Chain3 | 0/80 / 0/80 | 2/80 / 0/80 |
+| Mittlere Chain3-Zeit | 23,4 s | 22,5 s |
+
+Begruendung: sauberere beobachtete Ausgabequalitaet und Wiederholbarkeit sowie
+hoehere beobachtete Genauigkeit bei rund 4% Mehrlaufzeit. Die 80 Durchlaeufe je
+Bedingung sind zwei Wiederholungen derselben 40 Aufgaben, keine 80 unabhaengigen
+Aufgaben. Weder die Genauigkeitsdifferenz noch der Laufzeitunterschied begruenden
+eine statistische Ueberlegenheitsbehauptung. Null beobachtete Trunkierungen
+garantieren keine Trunkierungsfreiheit in laengeren nativen MAS-Kontexten.
+
+Vor Hauptversuchen sind Modell-Digest und Serving-Version zu binden sowie
+Adapter, Ausgabeformat und Kontext auf frischen Entwicklungsaufgaben zu pruefen.
+Der erste ehrliche Vorabpilot verwendet die Screening-Limits 8192 Ausgabetokens
+und 32768 Kontexttokens; Limits nicht aus Angriffsergebnissen optimieren.
+Beide Screening-Aufgabensaetze bleiben ausgeschlossen. Historische
+Qwen-/AnyMAC-Checkpoint-Diagnosen werden weder umetikettiert noch veraendert.
+Ein Modellwechsel validiert keine mit einem anderen Worker-Modell trainierten
+Router: passende saubere Trainings-/Kalibrierungsdaten und eingefrorene Zustaende
+fuer AnyMAC und G-Designer sind vor ihrem Vergleich separat nachzuweisen.
+
+### Ressourcenrahmen
 
 - Vereinbarter Umfang: AnyMAC, zwei weitere veroeffentlichte dynamische Verfahren,
   eine feste Referenzstrategie.
@@ -90,6 +187,17 @@ Alternativen, nicht parallel ebenfalls implementieren:
   Aufgabenabhaengige Graphkonstruktion ist eine Alternative zu MasRouter.
   GitHub meldet keine erkannte Lizenz; vor Codeuebernahme klaeren.
   Zuvor festgestellte Paper-Code-Abweichungen muessen methodisch dokumentiert werden.
+  Erneute Codepruefung 2026-10-20 beim selben Commit: `run_mmlu.py` initialisiert
+  den Graphen, trainiert bei aktivierter Kantenoptimierung auf MMLU-dev und
+  evaluiert anschliessend; in diesem Einstiegspfad wird kein vortrainierter
+  Graph-Checkpoint geladen. `train_mmlu.py` optimiert nur `graph.gcn.parameters()`,
+  obwohl `Graph.arun` auch eine MLP zur Kantenerzeugung nutzt.
+  Rollen-/Aufgabenembeddings stammen aus `all-MiniLM-L6-v2`.
+  Daraus folgen offene Adapterpflichten: Trainingszustand und Seeds einfrieren,
+  Embedding-Modell pinnen und Optimiererumfang explizit kennzeichnen.
+  Der native Ausfuehrungspfad wiederholt fehlgeschlagene Worker-Aufrufe;
+  unsere No-Retry-Regel ist deshalb eine dokumentationspflichtige Anpassung.
+  GitHub meldet weiterhin `license: null`; keine Upstream-Codeuebernahme erfolgt.
 
 Entscheidung 2026-10-19 (Nutzer): G-Designer ist das bevorzugte zweite Verfahren neben
 DyLAN; MasRouter ist Rueckfallkandidat. G-Designer beansprucht selbst Robustheit gegen
@@ -156,9 +264,9 @@ Welche Ebene fuer jeden Adapter sinnvoll ist, wird VOR Hauptauswertung fixiert.
 - Erster gemeinsamer Funktionspilot: 12 neue Entwicklungsaufgaben, gleiche IDs fuer
   alle Methoden. Falls Kandidaten bisher keine MASBench-Unterstuetzung haben:
   Anpassung und Parser explizit testen, nicht automatisch als native Reproduktion ausgeben.
-- Kernbenchmark kann MASBench breadth sein; eine zweite, anders strukturierte
-  Reasoning-Domaene ist vor breiten Generalisierungsbehauptungen erforderlich.
-  Auswahl und Lizenz/Zugang erst nach Adapterpruefung fixieren.
+- Kernbenchmark ist MMLU-Pro; MASBench bleibt ein optionaler kleiner Zusatz.
+  Eine zweite, anders strukturierte Reasoning-Domaene ist vor breiten
+  Generalisierungsbehauptungen erforderlich.
 - Ausgabeprotokoll nur anhand Entwicklung festlegen. Strenger Formatparser ist
   kein semantischer Gutachter; stichprobenartige manuelle Formatpruefung vor Fixierung.
 - Null protokollierte Ausfuehrungsfehler sowie vorab begrenzte Raten fuer Abschneidung
@@ -183,6 +291,14 @@ Diese Laeufe koennen mehrere Allokationen benoetigen; 43 Stunden ist ein
 kontrollierter Stopp, keine zugesicherte Gesamtlaufzeit.
 
 ### E1: Adapter- und Kostenpilot (als Naechstes zu implementieren)
+
+Ein ehrlicher Vorabpilot fuer die bereits implementierten Systeme `fixed` und
+`dylan` ist ueber [`preflight.sh`](../scripts/compare/preflight.sh) vorbereitet:
+zwei Systeme x 12 frische Dev-Aufgaben x drei Wiederholungen = 72 Episoden,
+ohne Angriffe und ohne Gewichtsupdates. Native/default Rollen bleiben erhalten;
+dies ist kein harmonisierter Methodenvergleich. Er prueft Transport, Format,
+Kontext und Kosten, nicht Robustheit. Er ist lokal syntaktisch geprueft, aber
+noch nicht auf Ramses ausgefuehrt. Erst danach folgt der vollstaendige E1:
 
 Vier Systeme x 12 Dev-Aufgaben x zwei Policies x drei Wiederholungen =
 288 Episoden nach bestandenem Transport-/Schemacheck.

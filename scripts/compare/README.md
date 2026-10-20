@@ -4,6 +4,52 @@ Shared by every compared system: AnyMAC, DyLAN, G-Designer (fallback MasRouter) 
 reference. Adapters only drive an `Episode`; they never write traces, scores or attack text themselves.
 Implements the E1 adapter obligations of [COMPARATIVE_PROTOCOL.md](../../docs/COMPARATIVE_PROTOCOL.md).
 
+## Gemma4 12B honest preflight
+
+The user selected `gemma4:12b-it-qat` after honest round-2 screening. This is an
+explicit deviation from the original selection rule, which selects 26B; see the
+[selection record](../../docs/COMPARATIVE_PROTOCOL.md#agentenmodellauswahl-nach-screening-2026-10-20).
+
+Before the full four-system E1, `preflight.sh` runs the two available systems
+(`fixed`, `dylan`) honestly: 12 fresh development tasks, three repetitions each,
+72 episodes total, default/native roles. This is a transport/context/cost check,
+not a harmonised comparison or robustness result. Each episode resets the adapter;
+there are no router weight updates. Both screening samples are excluded. These
+development tasks must also be excluded from future training and main evaluation.
+
+```bash
+# Login node, existing environment; do not git pull while confirmation is running.
+bash scripts/compare/preflight.sh prepare
+# Inside an otherwise idle A30 allocation with eight CPUs:
+bash scripts/compare/preflight.sh run
+# Login node, after both systems have written traces:
+bash scripts/compare/preflight.sh report
+```
+
+If confirmation is still running in the original checkout, do not update that
+checkout. Use a separate Git worktree at the new, tested commit instead. Set
+`ANYMAC_REPO` to the original checkout before invoking the script in the worktree:
+the shared helpers then use its existing configuration, caches, environment and
+reserved task files, while comparison code is executed from the new worktree.
+No model weights are copied. Run only one preflight writer per output directory.
+
+The script uses the existing screening Ollama 0.40.6 binary and model store
+(`SCREEN_MODELS_DIR` override supported), its own port 11446 and log directory,
+one inference slot, 8192 output tokens and 32768 context tokens. It never installs,
+pulls or evicts models, and never reuses an answering server. A missing model fails
+explicitly: check personal quota before any manual pull. Manifests bind the actual
+model digest, decoding, adapter configuration, source and tasks. Resuming requires
+the same source/settings; do not prepare a second sample at the frozen path.
+
+Inspect both reports and traces for backend/control errors, invalid final formats,
+final and worker truncation, ranker fallback, prompt tokens, calls and runtime.
+`COMPLETE.json` means the episode schedule finished, not that quality passed.
+Before adding attack policies or treating this as a passed preflight, require zero
+backend/control errors, <=5% invalid final formats and <=5% final truncations per
+system; report worker truncation separately. Context-capacity failures block
+progress. Investigate failures on these dev data without changing historical runs.
+AnyMAC and G-Designer are not yet registered in the common runner.
+
 | file | content |
 |---|---|
 | `contract.py` | `Episode` (call / decide / finish), trace schema `mascmp-trace/2`, attack controller, stops, `validate` |
