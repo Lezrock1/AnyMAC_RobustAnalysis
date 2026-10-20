@@ -48,7 +48,7 @@ direkt geprueft werden. Ein README allein beweist keine Reproduzierbarkeit.
 | Verfahren | Entscheidungsgegenstand | Rolle im Vergleich | Stand |
 |---|---|---|---|
 | AnyMAC | Naechster Agent und zugestellter Kontext entlang einer Trajektorie | Gelernter sequenzieller Router | Bestehende Pipeline; Originalfehler und Lernprobleme bekannt |
-| DyLAN | Inferenzzeitliche Auswahl/Reduktion aktiver Agenten, Konsens und fruehes Stoppen | Andersartige, antwortabhaengige dynamische Zusammenarbeit | Offizieller Code und Auswahlpfad im Demo geprueft; lokaler Adapter fehlt |
+| DyLAN | Inferenzzeitliche Auswahl/Reduktion aktiver Agenten, Konsens und fruehes Stoppen | Andersartige, antwortabhaengige dynamische Zusammenarbeit | Adapter `scripts/compare/dylan.py` (MMLU-Pfad, lokal getestet); Upstream-Auswahlfehler dokumentiert, zwei Varianten |
 | MasRouter | Aufgabenabhaengige Wahl von Zusammenarbeit, Agentenzahl, Rollen und LLMs | Aufgabenbasierte Systemkonfiguration statt Next-Agent-Routing | Offizieller Code und Controller-Eingaben geprueft; trainierter Zustand/Training und Adapter offen |
 | Feste Referenz | Vorab festgelegte zyklische Reihenfolge und Zustellung | Kontrollstrategie ohne adaptive Auswahl | Muss dieselbe Ausfuehrungs-/Logging-Schicht nutzen |
 
@@ -63,6 +63,11 @@ Primaere Quellen und konkret gelesene Code-Staende:
   Commit `006e440a519f7cf21e2826f3b8033d84ae9bf07c` (MIT).
   `code/demo/LLMLP.py` implementiert Aktivierung, Konsens und Listwise-Auswahl.
   README nennt MATH, MMLU und HumanEval; OpenAI-Transport muss lokal ersetzt werden.
+  Paper-Code-Abweichung: In `LLMLP.forward` (MMLU, Demo, HumanEval) vergleicht Runde 2
+  `if idx in idx_mask` die gemischte Schleifenposition mit den gerankten Rollenindizes; es laufen
+  daher praktisch zufaellige statt der vom Ranker gewaehlten Rollen (Paper Abschn. 3.3.2, Gl. 7).
+  Primaer `dylan` (Paper-Semantik), getrennt `dylan-upstream` (Code wie gepinnt); nie gepoolt.
+  Upstream-Issue #2 betrifft nur die fehlende Teamoptimierung, dieser Fehler ist nicht gemeldet.
 - MasRouter: [Paper](https://arxiv.org/abs/2502.11133),
   [offizielles Repository](https://github.com/yanweiyue/masrouter),
   Commit `e005f7696fe0c0412563f6cd67f4cd3712fa2822` (Apache-2.0).
@@ -277,7 +282,10 @@ Naechste Implementationsreihenfolge:
 1. Gemeinsamer Ereignisvertrag, Scoring und fixe Referenz mit Tests: implementiert in
    [`scripts/compare`](../scripts/compare/README.md) (lokal getestet, noch nicht auf Ramses gelaufen).
    Rollenpool, kompromittierte Identitaet, Aufrufhuelle und neuer Split werden nach dem Screening fixiert.
-2. DyLAN-Adapter, gepinnter offizieller Auswahl-/Stopppfad.
+2. DyLAN-Adapter, gepinnter offizieller Auswahl-/Stopppfad: implementiert in
+   [`scripts/compare/dylan.py`](../scripts/compare/README.md#dylan) (lokal getestet, byte-identischer
+   Abgleich der Variante `dylan-upstream` mit dem vendorten Originalcode). Angriffstext auf
+   `The answer is (X)` festgelegt, weil der native DyLAN-Parser nur `(X)` liest.
 3. G-Designer-Audit (Lizenz, Paper/Code-Abweichungen) und Adapter; MasRouter nur als Rueckfall.
 4. Lokal gemockter End-to-End-Test aller Adapter; dann E1 auf Ramses.
 5. Kosten/Praezision aus E1 pruefen, Protokoll einfrieren, erst dann E2/E3.

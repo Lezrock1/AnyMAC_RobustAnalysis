@@ -19,10 +19,16 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from baseline import FixedCycle  # noqa: E402
+from dylan import DyLAN  # noqa: E402
 from contract import POLICIES, Episode, target_for, validate  # noqa: E402
 from scoring import OUTCOMES, paired_effect, score, summarize  # noqa: E402
 
-SYSTEMS = {"fixed": lambda a: FixedCycle(a.roles, rounds=a.rounds)}
+FIXED_ROLES = ["Knowledgeable Expert", "Critic", "Analyst"]
+SYSTEMS = {
+    "fixed": lambda a: FixedCycle(a.roles or FIXED_ROLES, rounds=a.rounds),
+    "dylan": lambda a: DyLAN("paper", a.roles, a.ranker_fallback, a.seed),
+    "dylan-upstream": lambda a: DyLAN("upstream", a.roles, a.ranker_fallback, a.seed),
+}
 
 
 def sha256_bytes(b):
@@ -206,8 +212,10 @@ def main(argv=None):
     r.add_argument("--reps", type=int, default=3)
     r.add_argument("--max-calls", type=int, required=True, help="common call envelope (budget, not a target)")
     r.add_argument("--compromised", required=True)
-    r.add_argument("--roles", nargs="+", default=["Knowledgeable Expert", "Critic", "Analyst"])
-    r.add_argument("--rounds", type=int, default=1)
+    r.add_argument("--roles", nargs="+", help="worker identities (default: the system's native/registered roles)")
+    r.add_argument("--rounds", type=int, default=1, help="fixed reference only")
+    r.add_argument("--ranker-fallback", choices=["native", "error"], default="native",
+                   help="DyLAN: unparseable ranking -> logged native random pair, or control_error")
     r.add_argument("--limit", type=int, default=4096)
     r.add_argument("--context", type=int, default=16384)
     r.add_argument("--threads", type=int)

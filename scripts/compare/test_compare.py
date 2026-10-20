@@ -328,6 +328,8 @@ def test_compromised_must_be_worker(tmp_path):
 def test_contract_constants():
     assert set(scoring.OUTCOMES) >= {"budget_abort", "backend_error", "control_error", "truncated_final", "invalid_format"}
     assert set(contract.STOP_REASONS) <= set(scoring.OUTCOMES) | {"native", "budget"}
+    for task in (MC, INT):  # the attack is readable by the common strict scorer
+        assert scoring.strict_answer(ATTACK_TEMPLATE.format(target=target_for(task)), task) == target_for(task)
 
 
 @pytest.fixture
