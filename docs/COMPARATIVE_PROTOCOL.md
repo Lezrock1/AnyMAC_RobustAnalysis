@@ -4,8 +4,11 @@ Status: Entwurf vom 19.10.2026, noch kein eingefrorenes Hauptversuchsprotokoll.
 Dieser Entwurf erweitert den Gegenstand ueber AnyMAC hinaus. Er aendert weder das
 [historische AnyMAC-Protokoll](./PROTOCOL.md) noch bereits gespeicherte Ergebnisse.
 Die [isolierten Folgetests](../scripts/followup/README.md) sind implementiert;
-Feste Referenz und DyLAN sind lokal getestet; AnyMAC-/G-Designer-Adapter und die
-Ramses-Validierung der gemeinsamen Schicht stehen noch aus.
+Feste Referenz und DyLAN sind lokal getestet und bestehen laut uebermitteltem
+Ramses-Preflight die ehrlichen Format-/Fehler-/Trunkierungsschranken. Korrigiertes
+AnyMAC und eine qualifizierte G-Designer-Paperrekonstruktion sind lokal implementiert;
+sauberes Gemma-Routertraining und ihre Ramses-Validierung stehen noch aus.
+Details, Auslegungen und Startschranken: [gelernter Vergleich](./LEARNED_COMPARISON.md).
 
 ## Ziel und Ressourcen
 
@@ -144,7 +147,8 @@ direkt geprueft werden. Ein README allein beweist keine Reproduzierbarkeit.
 
 | Verfahren | Entscheidungsgegenstand | Rolle im Vergleich | Stand |
 |---|---|---|---|
-| AnyMAC | Naechster Agent und zugestellter Kontext entlang einer Trajektorie | Gelernter sequenzieller Router | Bestehende Pipeline; Originalfehler und Lernprobleme bekannt |
+| AnyMAC | Naechster Agent und zugestellter Kontext entlang einer Trajektorie | Gelernter sequenzieller Router | `anymac-corrected` implementiert; neue Gemma-Trainings-/Dev-Gates offen |
+| G-Designer | Aufgabenabhaengiger Kommunikationsgraph | Graphbasierte Orchestrierung | `gdesigner-paper`: eigenstaendige qualifizierte Rekonstruktion; keine verifizierte Originalreproduktion |
 | DyLAN | Inferenzzeitliche Auswahl/Reduktion aktiver Agenten, Konsens und fruehes Stoppen | Andersartige, antwortabhaengige dynamische Zusammenarbeit | Adapter `scripts/compare/dylan.py` (MMLU-Pfad, lokal getestet); Upstream-Auswahlfehler dokumentiert, zwei Varianten |
 | MasRouter | Aufgabenabhaengige Wahl von Zusammenarbeit, Agentenzahl, Rollen und LLMs | Aufgabenbasierte Systemkonfiguration statt Next-Agent-Routing | Offizieller Code und Controller-Eingaben geprueft; trainierter Zustand/Training und Adapter offen |
 | Feste Referenz | Vorab festgelegte zyklische Reihenfolge und Zustellung | Kontrollstrategie ohne adaptive Auswahl | Muss dieselbe Ausfuehrungs-/Logging-Schicht nutzen |
@@ -172,7 +176,7 @@ Primaere Quellen und konkret gelesene Code-Staende:
   Zusammenarbeitsoptionen entgegen. README nennt GSM8K, MATH, MMLU, MBPP und HumanEval.
   Nicht als antwortabhaengiger Next-Agent-Router bezeichnen.
 
-Alternativen, nicht parallel ebenfalls implementieren:
+Ergaenzende Audits und Alternativen:
 
 - [Puppeteer](https://arxiv.org/abs/2505.19591):
   Paper verlinkt [OpenBMB/ChatDev, Branch puppeteer](https://github.com/OpenBMB/ChatDev/tree/puppeteer),
@@ -198,6 +202,10 @@ Alternativen, nicht parallel ebenfalls implementieren:
   Der native Ausfuehrungspfad wiederholt fehlgeschlagene Worker-Aufrufe;
   unsere No-Retry-Regel ist deshalb eine dokumentationspflichtige Anpassung.
   GitHub meldet weiterhin `license: null`; keine Upstream-Codeuebernahme erfolgt.
+  Nutzerentscheidung und Update 21.10.2026: eigenstaendige Paperrekonstruktion
+  `gdesigner-paper` implementiert, ohne Codeuebernahme. Mathematische Unklarheiten
+  und alle Auslegungen siehe [Details](./LEARNED_COMPARISON.md). Nicht als
+  verifizierte Reproduktion des Originalverfahrens ausgeben.
 
 Entscheidung 2026-10-19 (Nutzer): G-Designer ist das bevorzugte zweite Verfahren neben
 DyLAN; MasRouter ist Rueckfallkandidat. G-Designer beansprucht selbst Robustheit gegen
@@ -297,11 +305,20 @@ Ein ehrlicher Vorabpilot fuer die bereits implementierten Systeme `fixed` und
 zwei Systeme x 12 frische Dev-Aufgaben x drei Wiederholungen = 72 Episoden,
 ohne Angriffe und ohne Gewichtsupdates. Native/default Rollen bleiben erhalten;
 dies ist kein harmonisierter Methodenvergleich. Er prueft Transport, Format,
-Kontext und Kosten, nicht Robustheit. Er ist lokal syntaktisch geprueft, aber
-noch nicht auf Ramses ausgefuehrt. Erst danach folgt der vollstaendige E1:
+Kontext und Kosten, nicht Robustheit. Laut Nutzerbericht vom 21.10.2026 sind beide
+Zellen mit je 36 Episoden vollstaendig: Genauigkeit jeweils 0,833, keine Fehler,
+ungueltigen Endformate oder Abschneidungen. DyLAN benoetigt im Mittel 71,457 s und
+6,056 Aufrufe; maximaler beobachteter Prompt 6.613 Tokens bei Kontextlimit 32.768.
+Die leere Fallback-grep-Ausgabe ersetzt keine Ereigniszaehlung.
+Erst danach folgt der vollstaendige E1:
 
-Vier Systeme x 12 Dev-Aufgaben x zwei Policies x drei Wiederholungen =
-288 Episoden nach bestandenem Transport-/Schemacheck.
+Aktualisierung 21.10.2026 vor neuen Vier-System-Laeufen: Der implementierte
+gemeinsame Pilot verwendet vier Systeme x 12 Dev-Aufgaben x zwei Policies x
+zwei Wiederholungen = 192 Episoden nach bestandenem Trainings-/Dev-Gate.
+Die Reduktion von urspruenglich drei geplanten Wiederholungen dient dem Kostenpilot;
+es ist kein Praezisionsnachweis. Gemeinsame Aufrufhuelle 32 statt 17, da die
+Paperrekonstruktion von G-Designer drei Runden mit insgesamt 30 Aufrufen nutzt.
+Die frueheren Preflight-/DyLAN-Protokolle bleiben unveraendert.
 Alle Kontroll-/Ranking-/Judge-Aufrufe mitzählen, auch wenn kein Worker erzeugt wird.
 Kostenprojektion aus gemessenen Aufrufen, Tokens und Laufzeiten; noch keine
 wissenschaftliche Rangliste aus diesen 12 Entwicklungsaufgaben.
@@ -436,21 +453,23 @@ Nicht mitten in einer Wiederholungsserie zwischen A30 und H100 wechseln.
 Ein spaeterer Hardware-/Servingwechsel erhaelt einen separaten Protokollblock
 mit eigener Kalibrierung und Wiederholungsdiagnose.
 
-Naechste Implementationsreihenfolge:
+Implementationsstand und naechste Schritte:
 
 0. Modell- und Benchmark-Screening (nur ehrlich, A30, vorab registrierte Kriterien):
    `scripts/screen/README.md`. Waehlt Agentenmodell und Benchmark fuer E1-E3. Das Pilotmodell
    `qwen3:30b-a3b-instruct-2507` (Juli 2025) ist nur Kontinuitaetsanker. Screening-Aufgaben sind
    reserviert und in keiner spaeteren Evaluation zulaessig.
 1. Gemeinsamer Ereignisvertrag, Scoring und fixe Referenz mit Tests: implementiert in
-   [`scripts/compare`](../scripts/compare/README.md) (lokal getestet, noch nicht auf Ramses gelaufen).
-   Rollenpool, kompromittierte Identitaet, Aufrufhuelle und neuer Split werden nach dem Screening fixiert.
+   [`scripts/compare`](../scripts/compare/README.md) (lokal getestet; feste Referenz/DyLAN
+   im ehrlichen Ramses-Preflight gelaufen).
 2. DyLAN-Adapter, gepinnter offizieller Auswahl-/Stopppfad: implementiert in
    [`scripts/compare/dylan.py`](../scripts/compare/README.md#dylan) (lokal getestet, byte-identischer
    Abgleich der Variante `dylan-upstream` mit dem vendorten Originalcode). Angriffstext auf
    `The answer is (X)` festgelegt, weil der native DyLAN-Parser nur `(X)` liest.
-3. G-Designer-Audit (Lizenz, Paper/Code-Abweichungen) und Adapter; MasRouter nur als Rueckfall.
-4. Lokal gemockter End-to-End-Test aller Adapter; dann E1 auf Ramses.
+3. Gelernte Adapter und sauberes Gemma-Training implementiert:
+   [korrigiertes AnyMAC und qualifizierte G-Designer-Rekonstruktion](./LEARNED_COMPARISON.md).
+   Nun Runtime-Smokes, Training und Trainings-/Dev-Gates auf Ramses.
+4. Vier-System-Pilot und Kostenprojektion, jeweils ohne historische Ergebnisse zu ueberschreiben.
 5. Kosten/Praezision aus E1 pruefen, Protokoll einfrieren, erst dann E2/E3.
 
 Noch vom Nutzer zu klaeren:

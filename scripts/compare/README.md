@@ -48,7 +48,92 @@ Before adding attack policies or treating this as a passed preflight, require ze
 backend/control errors, <=5% invalid final formats and <=5% final truncations per
 system; report worker truncation separately. Context-capacity failures block
 progress. Investigate failures on these dev data without changing historical runs.
-AnyMAC and G-Designer are not yet registered in the common runner.
+Learned variants are registered separately as `anymac-corrected` and `gdesigner-paper`;
+their clean Gemma training and Ramses validation are still pending.
+
+## Gelernte Router und Vier-System-Suite
+
+Read [the qualifications and frozen training design](../../docs/LEARNED_COMPARISON.md)
+before running. `gdesigner-paper` is NOT a verified reproduction of the original
+paper; interpretations of ambiguous equations and the DAG projection are explicit.
+Neither variant accepts historical Qwen checkpoints or an untrained fallback.
+
+Use a **new worktree pinned to the implementation commit**, not the directory of
+the running confirmation or the old preflight. `git fetch` is safe; do not
+`git pull`/change running source. Set `ANYMAC_REPO` to the original environment/data
+directory in every new shell/job.
+
+```bash
+# Login node, new pinned worktree:
+cd ~/AnyMAC_compare_full
+export ANYMAC_REPO=$HOME/AnyMAC_RobustAnalysis
+bash scripts/compare/learned.sh prepare
+
+# One otherwise idle allocated A30, 8 CPUs, e.g. via the existing idle allocation.
+# Runtime check: two train tasks, one dev task, two samples. No main-study gate.
+bash scripts/compare/learned.sh smoke anymac-corrected 0
+bash scripts/compare/learned.sh smoke gdesigner-paper 0
+
+# Only after reviewing the smoke logs, in one GPU allocation per process:
+bash scripts/compare/learned.sh train anymac-corrected 0
+bash scripts/compare/learned.sh train gdesigner-paper 0
+# Each command automatically runs its development gate after training.
+# Run these on distinct allocated GPUs to train concurrently, not on the same GPU.
+```
+
+Preparation reserves the 60 evaluation IDs before sampling 40 fresh train IDs and
+downloads pinned MiniLM/GPT-2 assets only. It never starts study attacks or pulls
+Ollama models. Check personal quota first. Both runtime model loading and tensor
+checkpoints are offline/hash-bound. One rolling optimizer checkpoint avoids a
+checkpoint-per-task disk explosion. A runtime smoke is machine-marked and cannot
+be promoted to the main study.
+
+Resume uses the same command/commit/settings. Outputs:
+`results/compare/learned_gemma12b_v1/{system}/seed{seed}/`.
+Inspect `progress.json`, `dev_initial.jsonl`, `dev_trained.jsonl` and
+`router.gate.json`. A failed gate is NOT permission to run an untrained substitute.
+After an interruption, the most recent completed training task is durable.
+
+Once **both seed-0 gates pass**, run the four-system pilot in a GPU allocation:
+
+```bash
+# One server per allocated GPU; supports a Slurm mask containing one or several GPUs.
+bash scripts/compare/suite.sh pilot
+# Login node after completion:
+bash scripts/compare/suite.sh report pilot
+```
+
+The pilot has 192 episodes (four systems, 12 development tasks, honest/bare attack,
+two repetitions), call envelope 32. It reruns fixed/DyLAN into new output paths,
+without overwriting the old preflight. G-Designer needs 30 calls, so using the old
+17-call ceiling would be an invalid comparison. The pilot reports honest output
+quality, attack effects, exposure, costs and a task bootstrap. No partial cells
+enter pooled effects.
+
+Before the main run, review the actual pilot and train seeds 1 and 2 of each
+learned variant (same commands, changed final seed argument). Do not select the
+best seed; the suite includes all three. After a passed seed-0 pilot,
+`plan` can project costs for not-yet-trained remaining seeds; actual execution
+still refuses missing gates:
+
+```bash
+bash scripts/compare/suite.sh plan
+# Only after reviewing the projection and all six training gates, in a GPU allocation:
+COMPARE_GPU_BUDGET_HOURS=<explicit_approved_amount> bash scripts/compare/suite.sh main
+bash scripts/compare/suite.sh report main
+```
+
+There is no implicit multi-day start. The admission estimate includes a 25% margin
+but is not a runtime limit; set the Slurm wall time independently. Main data have
+60 independent task units, not thousands. The default full schedule has 136
+runs / 8,640 episodes and can be expensive; inspect the measured projection first.
+Thread count is allocated CPUs divided by GPUs. Servers are refused on occupied
+ports, checked against the trained worker identity, and stopped on exit. Queue
+failures remain explicit; rerunning resumes only unfinished cells.
+
+The suite deliberately reports these method variants, not unqualified native
+AnyMAC/G-Designer. Role counts/prompts/training costs are not perfectly harmonized;
+between-system differences do not isolate a causal routing effect.
 
 | file | content |
 |---|---|
@@ -63,6 +148,9 @@ AnyMAC and G-Designer are not yet registered in the common runner.
 | `test_dylan.py` | DyLAN: byte-identical replay of the pinned upstream `LLMLP.forward`, variants, ranker, attack, budget |
 | `attack_texts.py` | persuasive attack texts: generated once per task, frozen, quality-gated |
 | `study.sh` | DyLAN dependence study: sample, attack texts, multi-GPU resumable queue, report |
+| `learned.py` | corrected AnyMAC and qualified paper-derived G-Designer, frozen tensor artifacts |
+| `train_learned.py`, `learned.sh` | pinned assets, clean disjoint router training, rolling resume, development gate |
+| `suite.py`, `suite.sh` | gated four-system pilot/main, admission cost estimate, per-GPU queue, task bootstrap |
 | `test_attack_texts.py`, `test_study.py` | persuasive form, v2 compatibility, manifest binding, generator gate; study driver |
 
 ## DyLAN dependence study
@@ -178,11 +266,12 @@ as `fallback="random_pair"`, or with `--ranker-fallback error` becomes `control_
 without a parseable letter (native consensus can form on `None`) is scored `invalid_format`. Round-2
 prompts contain all seven round-1 replies: check the context limit (`backend_error` if exceeded) in E1.
 
-## Open before E1 (not decided here)
+## Remaining empirical prerequisites
 
-- benchmark and agent model (screening `scripts/screen`), role pool, compromised identity, call envelope
-- fresh dev/eval split, disjoint from screening tasks
-- adapters: G-Designer, AnyMAC on this contract
-- harmonised role pool vs native roles (DyLAN uses its 7 native roles), compromised DyLAN role
+- Execute both learned runtime smokes and clean Gemma training on Ramses.
+- Inspect training signal, untrained/trained development performance and routing diagnostics.
+- Run the four-system pilot; review measured compute/storage and model/format quality.
+- Keep method qualifications and non-harmonized role/prompt differences explicit.
+- Main runs remain blocked on the gates and explicit cost approval above.
 
 Tests: `.venv/bin/python -m pytest -q scripts/compare`.

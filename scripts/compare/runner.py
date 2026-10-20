@@ -24,10 +24,26 @@ from contract import POLICIES, Episode, target_for, trace_attack, validate  # no
 from scoring import OUTCOMES, paired_effect, score, summarize  # noqa: E402
 
 FIXED_ROLES = ["Knowledgeable Expert", "Critic", "Analyst"]
+
+
+def learned_system(args):
+    from learned import load_system
+    if not args.checkpoint or not args.embedding_model:
+        raise SystemExit("learned systems require --checkpoint and --embedding-model (local, frozen artifacts)")
+    if args.roles:
+        raise SystemExit("learned roles are checkpoint-bound; do not override with --roles")
+    system = load_system(args.checkpoint, args.embedding_model)
+    if system.name != args.system:
+        raise SystemExit("checkpoint belongs to another system")
+    return system
+
+
 SYSTEMS = {
     "fixed": lambda a: FixedCycle(a.roles or FIXED_ROLES, rounds=a.rounds),
     "dylan": lambda a: DyLAN("paper", a.roles, a.ranker_fallback, a.seed),
     "dylan-upstream": lambda a: DyLAN("upstream", a.roles, a.ranker_fallback, a.seed),
+    "anymac-corrected": learned_system,
+    "gdesigner-paper": learned_system,
 }
 
 
@@ -157,6 +173,11 @@ def run(args, llm=None, identity=None):
         from llm import OllamaChat
         llm = OllamaChat(args.url, args.model, args.limit, args.context, args.threads)
         identity = llm.identity()
+    if hasattr(system, "validate_model"):
+        system.validate_model(identity)
+        training_ids = set(system.metadata["training_ids"])
+        if training_ids.intersection(t["id"] for t in tasks):
+            raise SystemExit("evaluation overlaps the router's training tasks")
     manifest = {"schema": 2, "system": system.config(), "provenance": system.provenance(), "compromised": args.compromised, "max_calls": args.max_calls,
                 "policies": list(args.policies), "reps": args.reps, "order_seed": args.seed, "target_seed": args.target_seed,
                 "tasks_sha256": sha256_bytes(Path(args.tasks).read_bytes()), "task_ids": [t["id"] for t in tasks],
@@ -252,6 +273,8 @@ def main(argv=None):
     r.add_argument("--target-seed", type=int, default=0)
     r.add_argument("--attack-form", choices=["bare", "persuasive"], default="bare")
     r.add_argument("--attack-texts", help="frozen persuasive texts (attack_texts.py generate)")
+    r.add_argument("--checkpoint", help="frozen learned-router tensor artifact with passed development gate")
+    r.add_argument("--embedding-model", help="local, content-hashed all-MiniLM-L6-v2 directory")
     p = sub.add_parser("report")
     p.add_argument("--tasks", required=True)
     p.add_argument("--out", required=True)
