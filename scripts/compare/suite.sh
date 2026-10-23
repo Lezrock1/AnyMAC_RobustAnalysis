@@ -14,12 +14,19 @@ load_env
 load_modules
 activate_venv
 learned="$RESULTS_DIR/compare/learned_gemma12b_v1"
-args=("$command" --phase "$phase" --learned-root "$learned"
+reserved=("$RESULTS_DIR/screen/screen_tasks_v1.json" "$RESULTS_DIR/screen/screen_tasks_r2.json")
+if [[ "$phase" == main ]]; then
+  reserved+=("$RESULTS_DIR/compare/dylan_study_v1/eval_tasks.json"
+             "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json")
+fi
+args=("$command" --phase "$phase" --learned-root "$RESULTS_DIR/compare/learned_gemma12b_profiles_v2"
+      --assets "$learned/assets.json"
+      --gdesigner-root "$learned"
       --dev-tasks "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json"
-      --eval-tasks "$RESULTS_DIR/compare/dylan_study_v1/eval_tasks.json"
+      --eval-tasks "$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json"
       --train-tasks "$learned/train_tasks.json"
-      --reserved "$RESULTS_DIR/screen/screen_tasks_v1.json" "$RESULTS_DIR/screen/screen_tasks_r2.json"
-      --out "$RESULTS_DIR/compare/four_system_gemma12b_v1")
+      --reserved "${reserved[@]}"
+      --out "$RESULTS_DIR/compare/five_condition_gemma12b_v2")
 if [[ "$command" != run ]]; then
   python scripts/compare/suite.py "${args[@]}"
   exit 0

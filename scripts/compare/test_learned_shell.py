@@ -70,7 +70,7 @@ if os.environ.get("FAIL_TRAIN") and a[1] == "train": raise SystemExit(3)
     return invoke
 
 
-@pytest.mark.parametrize("system,samples", [("anymac-corrected", "4"), ("gdesigner-paper", "10")])
+@pytest.mark.parametrize("system,samples", [("anymac-normal", "4"), ("anymac-efficient", "4"), ("gdesigner-paper", "10")])
 def test_clean_train_then_gate(driver, system, samples):
     r, calls, events = driver("learned.sh", "train", system, "1")
     assert r.returncode == 0, r.stderr
@@ -78,12 +78,15 @@ def test_clean_train_then_gate(driver, system, samples):
     train = calls[0]
     assert train[train.index("--samples") + 1] == samples
     assert train[train.index("--purpose") + 1] == "study"
-    assert ("--backbone" in train) == (system == "anymac-corrected")
+    assert ("--backbone" in train) == system.startswith("anymac-")
+    if system.startswith("anymac-"):
+        assert train[train.index("--anymac-profile") + 1] == system.removeprefix("anymac-")
+        assert "profiles_v2" in train[train.index("--out") + 1]
     assert len(events) == 2 and events[0].endswith(" 3") and events[1].startswith("stop")
 
 
 def test_smoke_is_not_qualifying_checkpoint(driver):
-    r, calls, _ = driver("learned.sh", "smoke", "anymac-corrected")
+    r, calls, _ = driver("learned.sh", "smoke", "anymac-normal")
     assert r.returncode == 0, r.stderr
     assert len(calls) == 1 and calls[0][1] == "train"
     assert calls[0][calls[0].index("--purpose") + 1] == "runtime-smoke"
@@ -93,7 +96,7 @@ def test_smoke_is_not_qualifying_checkpoint(driver):
 @pytest.mark.parametrize("override", [{"CUDA_VISIBLE_DEVICES": ""}, {"CUDA_VISIBLE_DEVICES": "0,1"},
                                       {"SLURM_JOB_ID": ""}, {"BUSY": "1"}])
 def test_no_accidental_unallocated_or_shared_gpu(driver, override):
-    r, calls, events = driver("learned.sh", "train", "anymac-corrected", **override)
+    r, calls, events = driver("learned.sh", "train", "anymac-normal", **override)
     assert r.returncode and not calls and not events
 
 
@@ -116,3 +119,9 @@ def test_failed_training_never_reports_gate_success(driver):
     assert r.returncode == 3
     assert [c[1] for c in calls] == ["train"]
     assert len(events) == 2 and events[-1].startswith("stop")
+
+
+def test_ambiguous_anymac_label_refused(driver):
+    r, calls, events = driver("learned.sh", "train", "anymac-corrected")
+    assert r.returncode and "explicitly" in r.stderr
+    assert not calls and not events

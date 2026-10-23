@@ -17,29 +17,35 @@ def arguments(tmp_path, phase="pilot"):
         (tmp_path / f"{label}.json").write_text(json.dumps({"tasks": [
             {"id": f"{label}/{i}", "kind": "mc", "text": "Q", "truth": "A", "n_options": 4}
             for i in range(2)]}))
-    return SimpleNamespace(command="run", phase=phase, dev_tasks=tmp_path / "dev.json",
+    args = SimpleNamespace(command="run", phase=phase, dev_tasks=tmp_path / "dev.json",
                            eval_tasks=tmp_path / "eval.json", train_tasks=tmp_path / "train.json",
                            reserved=[tmp_path / "reserved.json"], learned_root=tmp_path / "learned",
                            seeds=[0, 1, 2], out=tmp_path / "suite", model="fake", threads=8)
+    doc = json.loads(args.eval_tasks.read_text())
+    doc.update(purpose="fresh-main-confirmation", excluded_sha256={
+        str(p): suite.digest(p) for p in [*args.reserved, args.train_tasks, args.dev_tasks]})
+    args.eval_tasks.write_text(json.dumps(doc))
+    return args
 
 
 def fake_artifact(root, system, seed, embedding_hash):
     return Path(root) / system / f"seed{seed}/router.pt", {
         "config": {"roles": ["Expert", "Critic", "Analyst"]}, "training_ids": ["train/1"],
-        "dev_ids": ["dev/1"], "artifact_sha256": f"{system}-{seed}"}
+        "dev_ids": ["dev/1"], "artifact_sha256": f"{system}-{seed}",
+        "initial_policy_sha256": f"initial-{seed}"}
 
 
 def test_pilot_and_main_schedule(monkeypatch, tmp_path):
     monkeypatch.setattr(suite, "artifact", fake_artifact)
     args = arguments(tmp_path)
     jobs, tasks = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
-    assert len(jobs) == 4 and len(tasks) == 2
+    assert len(jobs) == 5 and len(tasks) == 2
     assert {j["system"] for j in jobs} == {"fixed", "dylan", *suite.LEARNED}
     assert all(j["policies"] == ["honest", "attack"] and j["reps"] == 2 for j in jobs)
     assert {j["seed"] for j in jobs} == {0, None}
     args.phase = "main"
     jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
-    assert len(jobs) == 2 + 2 * (3 + 7) + 2 * 3 * (1 + 2 * 3)
+    assert len(jobs) == 2 + 2 * (3 + 7) + 3 * 3 * (1 + 2 * 3)
     assert len({j["id"] for j in jobs}) == len(jobs)
     for job in jobs:
         assert ("--attack-texts" in job["argv"]) == (job["form"] == "persuasive")
@@ -50,7 +56,7 @@ def test_pilot_and_main_schedule(monkeypatch, tmp_path):
         suite.jobs_for(args, {"path": "embed", "sha256": "x"})
 
 
-def test_default_main_has_136_runs_and_8640_episodes_for_60_tasks(monkeypatch, tmp_path):
+def test_default_main_has_193_runs_and_12240_episodes_for_60_tasks(monkeypatch, tmp_path):
     def full_artifact(*args):
         path, meta = fake_artifact(*args)
         meta["config"]["roles"] = ["Knowledgeable Expert", "Critic", "Mathematician", "Psychologist",
@@ -59,10 +65,33 @@ def test_default_main_has_136_runs_and_8640_episodes_for_60_tasks(monkeypatch, t
     monkeypatch.setattr(suite, "artifact", full_artifact)
     args = arguments(tmp_path, "main")
     eval_tasks = [{"id": f"eval/{i}", "kind": "mc", "text": "Q", "truth": "A", "n_options": 4} for i in range(60)]
-    args.eval_tasks.write_text(json.dumps({"tasks": eval_tasks}))
+    document = json.loads(args.eval_tasks.read_text())
+    document["tasks"] = eval_tasks
+    args.eval_tasks.write_text(json.dumps(document))
     jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
-    assert len(jobs) == 136
-    assert sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs) == 8640
+    assert len(jobs) == 193
+    assert sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs) == 12240
+
+
+def test_main_refuses_old_unreserved_sample(monkeypatch, tmp_path):
+    monkeypatch.setattr(suite, "artifact", fake_artifact)
+    args = arguments(tmp_path, "main")
+    doc = json.loads(args.eval_tasks.read_text())
+    del doc["purpose"]
+    args.eval_tasks.write_text(json.dumps(doc))
+    with pytest.raises(ValueError, match="fresh reserved"):
+        suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+
+
+def test_anymac_profiles_require_paired_initial_weights(monkeypatch, tmp_path):
+    def mismatched(root, system, seed, embedding):
+        path, meta = fake_artifact(root, system, seed, embedding)
+        if system == "anymac-efficient":
+            meta["initial_policy_sha256"] = "different"
+        return path, meta
+    monkeypatch.setattr(suite, "artifact", mismatched)
+    with pytest.raises(ValueError, match="initial weights"):
+        suite.jobs_for(arguments(tmp_path), {"path": "embed", "sha256": "x"})
 
 
 def test_disjointness_and_cost_projection(monkeypatch, tmp_path):
@@ -126,3 +155,57 @@ def test_partial_cells_are_not_pooled(tmp_path):
     job = {"argv": ["--out", str(tmp_path)], "policies": ["honest"], "reps": 1}
     with pytest.raises(ValueError, match="incomplete"):
         suite.completed_rows([job], [{"id": "x"}])
+
+
+def test_normal_and_efficient_architecture_traces_are_never_pooled_under_one_label(tmp_path):
+    from test_compare import episode, MC
+    task_file = tmp_path / "tasks.json"
+    task_file.write_text(json.dumps({"tasks": [MC]}))
+    jobs = []
+    for label in ("anymac-normal", "anymac-efficient"):
+        out = tmp_path / label
+        out.mkdir()
+        trace, _ = episode(max_calls=32)
+        trace["system"] = "anymac-corrected"
+        manifest = {"source": suite.source_digest(), "system": {"system": "anymac-corrected"},
+                    "compromised": "Critic", "max_calls": 32, "task_ids": [MC["id"]],
+                    "tasks_sha256": suite.digest(task_file), "policies": ["honest"], "reps": 1, "target_seed": 0}
+        (out / "manifest.json").write_text(json.dumps(manifest))
+        (out / "traces.jsonl").write_text(json.dumps(trace) + "\n")
+        (out / "COMPLETE.json").write_text('{"episodes":1}')
+        jobs.append({"argv": ["--out", str(out), "--tasks", str(task_file)],
+                     "system": label, "role": "Critic", "artifact_sha256": None,
+                     "policies": ["honest"], "reps": 1, "seed": 0, "form": "bare"})
+    rows = suite.completed_rows(jobs, [MC])
+    assert {r["system"] for r in rows} == {"anymac-normal", "anymac-efficient"}
+    assert set(suite.summarize(rows)) == {"anymac-normal/honest", "anymac-efficient/honest"}
+
+
+def test_clean_suite_rejects_wrong_profile_and_intervention_artifacts(tmp_path):
+    import train_learned
+    path = tmp_path / "anymac-normal/seed0/router.pt"
+    path.parent.mkdir(parents=True)
+    path.write_bytes(b"hash-only-test")
+    meta = {"config": {"system": "anymac-corrected", "training_profile": "normal",
+                       **train_learned.ANYMAC_PROFILES["normal"]},
+            "seed": 0, "purpose": "study", "artifact_sha256": suite.digest(path),
+            "initial_policy_sha256": "a" * 64,
+            "embedding_sha256": "embed", "runtime_sources": suite.runtime_sources(),
+            "environment": suite.environment(), "training_intervention": None}
+    def write():
+        path.with_suffix(".json").write_text(json.dumps(meta))
+        gate = {"passed": True, "artifact_sha256": suite.digest(path),
+                "metadata_sha256": suite.digest(path.with_suffix(".json")),
+                "runtime_sources": suite.runtime_sources(), "environment": suite.environment()}
+        path.with_suffix(".gate.json").write_text(json.dumps(gate))
+    write()
+    suite.artifact(tmp_path, "anymac-normal", 0, "embed")
+    meta["config"]["reward_decay"] = .95
+    write()
+    with pytest.raises(ValueError, match="profile"):
+        suite.artifact(tmp_path, "anymac-normal", 0, "embed")
+    meta["config"]["reward_decay"] = 1.0
+    meta["training_intervention"] = {"condition": "ordinary-neutral"}
+    write()
+    with pytest.raises(ValueError, match="gate"):
+        suite.artifact(tmp_path, "anymac-normal", 0, "embed")

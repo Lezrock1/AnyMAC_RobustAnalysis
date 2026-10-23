@@ -219,6 +219,7 @@ def test_training_resume_artifact_gate_and_model_binding(tmp_path, monkeypatch, 
     args = SimpleNamespace(system=name, samples=2, epochs=1, seed=0, tasks=str(tasks), dev_tasks=str(dev),
                            reserved=[str(reserved)], model="fake", out=str(tmp_path / "out"), backbone=None,
                            embedding_model="fake", lr=1e-4, max_calls=32, purpose="study")
+    args.anymac_profile = "normal" if name == "anymac-corrected" else None
     artifact = training.train(args, LLM(), system.embedder, system.settings, system.policy)
     assert artifact.is_file() and not artifact.with_name("progress.pt").exists()
     metadata = json.loads(artifact.with_suffix(".json").read_text())
@@ -253,6 +254,59 @@ def test_quality_gate_rejects_no_utility_signal_and_bad_quality():
     assert not training.quality([row], 1, 0, 1, 1)["passed"]
     assert not training.quality([row], 1, 1, 0, 1)["passed"]
     assert not training.quality([dict(row, outcome="invalid_format", correct=False)], 1, 1, 1, 1)["passed"]
+
+
+def test_explicit_anymac_profiles_and_rewards():
+    original = config("anymac-corrected")
+    for label, gamma, weight, window in (("normal", 1, 0, 5), ("efficient", .9, .001, 2),
+                                        ("historical-095", .95, 0, 10)):
+        c = training.training_config(original, label)
+        assert c["reward_decay"] == gamma and c["sparse_context"] == weight and c["max_context"] == window
+        assert training.episode_reward(True, 3, c) == gamma ** 3
+        assert training.episode_reward(False, 3, c) == 0
+    assert original["max_context"] == 2  # input is not mutated
+    with pytest.raises(ValueError, match="explicit"):
+        training.training_config(original, None)
+    with pytest.raises(ValueError, match="G-Designer"):
+        training.training_config(config("gdesigner-paper"), "efficient")
+
+
+def test_sparse_context_penalty_matches_original_unscaled_cosine_and_has_gradient():
+    class Policy:
+        config = {"roles": ["A"], "sparse_context": .001}
+        value = torch.tensor([.4, -.2, .8], requires_grad=True)
+
+        def scores(self, task, history, authors):
+            return torch.zeros(2), 2 * self.value[:len(history)]
+
+    p = Policy()
+    replay = {"task": torch.zeros(384), "steps": [
+        {"role": 0, "embedding": torch.zeros(384)} for _ in range(3)] + [{"role": 1}]}
+    regularizer = training.context_regularizer(p, replay)
+    expected = .001 * (p.value[0] + p.value[:2].sum() + p.value.sum())
+    assert torch.allclose(regularizer, expected)
+    regularizer.backward()
+    assert torch.allclose(p.value.grad, torch.tensor([.003, .002, .001]))
+    p.config = {**p.config, "sparse_context": 0}
+    assert training.context_regularizer(p, replay).item() == 0
+
+
+def test_efficient_context_only_delivers_newest_two_and_initial_weights_are_paired():
+    first = system_for("anymac-corrected")
+    second = system_for("anymac-corrected")
+    first.policy.config = training.training_config(first.settings, "normal")
+    second.policy.config = training.training_config(second.settings, "efficient")
+    assert all(torch.equal(t, second.policy.state_dict()[name]) for name, t in first.policy.state_dict().items())
+    second.settings = second.policy.config
+    second.settings["max_workers"] = 4
+    # Force worker selection and select every hint, so masking is tested beyond the window.
+    second.policy.scores = lambda task, history, authors: (torch.tensor([10., 0., 0., -10.]),
+                                                          torch.ones(len(history)))
+    traced = run(second)
+    calls = [e for e in traced["events"] if e["type"] == "call"]
+    assert len(calls) == 5
+    assert calls[-1]["inputs"] == ["m2", "m3"]
+    assert all(len(c["inputs"]) <= 2 for c in calls)
 
 
 def test_training_split_overlap_refused_before_worker(tmp_path):
@@ -327,6 +381,7 @@ def test_interrupted_training_resumes_only_remaining_task(tmp_path, monkeypatch)
                            out=str(tmp_path / "out"), backbone=None, embedding_model="fake",
                            lr=1e-4, max_calls=32, purpose="study")
     save = training.atomic_save
+    args.anymac_profile = "normal"
 
     def interrupt(path, data):
         save(path, data)

@@ -1,4 +1,4 @@
-"""Gated four-system pilot/main schedules and task-level analysis.
+"""Gated five-condition pilot/main schedules and task-level analysis.
 
 Main runs require three clean training seeds, completed pilot and an explicit GPU-hour budget.
 The budget is an admission estimate, not an enforced scheduler time limit.
@@ -17,7 +17,7 @@ import sys
 import time
 
 import attack_texts
-from learned import SYSTEMS as LEARNED, digest, environment, runtime_sources, worker_identity
+from learned import digest, environment, runtime_sources, worker_identity
 from llm import OllamaChat
 from runner import FIXED_ROLES, HERE, load_tasks, lock, read_traces, source_digest, write_json
 from scoring import score, summarize
@@ -25,17 +25,31 @@ from train_learned import output_quality
 
 BASELINES = {"fixed": FIXED_ROLES,
              "dylan": ["Economist", "Doctor", "Lawyer", "Mathematician", "Psychologist", "Programmer", "Historian"]}
+LEARNED = ("anymac-normal", "anymac-efficient", "gdesigner-paper")
+
+
+def architecture(label):
+    return "anymac-corrected" if label in ("anymac-normal", "anymac-efficient") else label
 
 
 def artifact(root, system, seed, embedding_hash):
     path = Path(root) / system / f"seed{seed}" / "router.pt"
     meta_path, gate_path = path.with_suffix(".json"), path.with_suffix(".gate.json")
     meta, gate = json.loads(meta_path.read_text()), json.loads(gate_path.read_text())
-    if (meta["config"]["system"] != system or meta["seed"] != seed or meta["purpose"] != "study" or not gate["passed"]
+    if (meta["config"]["system"] != architecture(system) or meta["seed"] != seed or meta["purpose"] != "study" or not gate["passed"]
+            or meta.get("training_intervention") is not None
             or meta["artifact_sha256"] != digest(path) or gate["artifact_sha256"] != digest(path)
             or gate["metadata_sha256"] != digest(meta_path) or meta["embedding_sha256"] != embedding_hash
+            or gate["runtime_sources"] != runtime_sources() or gate["environment"] != environment()
             or meta["runtime_sources"] != runtime_sources() or meta["environment"] != environment()):
         raise ValueError(f"missing/stale/failed artifact gate: {path}")
+    if system.startswith("anymac-"):
+        from train_learned import ANYMAC_PROFILES
+        profile = system.removeprefix("anymac-")
+        expected = {**ANYMAC_PROFILES[profile], "training_profile": profile}
+        if (any(meta["config"].get(k) != v for k, v in expected.items())
+                or len(meta.get("initial_policy_sha256", "")) != 64):
+            raise ValueError(f"wrong AnyMAC training profile: {path}")
     return path, meta
 
 
@@ -48,20 +62,35 @@ def jobs_for(args, embedding):
     systems: list[tuple[str, int | None, list[str], Path | None]] = [
         (s, None, roles, None) for s, roles in BASELINES.items()]
     artifact_hashes = {}
+    paired_initial = {}
     for system in LEARNED:
+        root = args.learned_root
+        if system == "gdesigner-paper":
+            root = getattr(args, "gdesigner_root", None) or root
         for seed in seeds:
-            checkpoint = Path(args.learned_root) / system / f"seed{seed}" / "router.pt"
+            checkpoint = Path(root) / system / f"seed{seed}" / "router.pt"
             if args.command == "plan" and not checkpoint.exists():
-                _, meta = artifact(args.learned_root, system, seeds[0], embedding["sha256"])
+                _, meta = artifact(root, system, seeds[0], embedding["sha256"])
                 artifact_hashes[(system, seed)] = "NOT_TRAINED_PROJECTION_ONLY"
             else:
-                checkpoint, meta = artifact(args.learned_root, system, seed, embedding["sha256"])
+                checkpoint, meta = artifact(root, system, seed, embedding["sha256"])
                 artifact_hashes[(system, seed)] = meta["artifact_sha256"]
+            if system.startswith("anymac-") and artifact_hashes[(system, seed)] != "NOT_TRAINED_PROJECTION_ONLY":
+                initial = meta["initial_policy_sha256"]
+                if seed in paired_initial and paired_initial[seed] != initial:
+                    raise ValueError("normal/efficient AnyMAC initial weights differ for the same seed")
+                paired_initial[seed] = initial
             if set(meta["training_ids"]).intersection(t["id"] for t in task_list):
                 raise ValueError("suite evaluation overlaps checkpoint training data")
             if args.phase == "main" and set(meta["dev_ids"]).intersection(t["id"] for t in task_list):
                 raise ValueError("main evaluation overlaps checkpoint development data")
             systems.append((system, seed, meta["config"]["roles"], checkpoint))
+    if args.phase == "main":
+        document = json.loads(Path(tasks).read_text())
+        excluded = set(document.get("excluded_sha256", {}).values())
+        if (document.get("purpose") != "fresh-main-confirmation"
+                or any(digest(p) not in excluded for p in [*args.reserved, args.train_tasks, args.dev_tasks])):
+            raise ValueError("main needs a fresh reserved sample binding all reserved/train/development files")
     jobs = []
     for system, seed, roles, checkpoint in systems:
         label = system if seed is None else f"{system}/seed{seed}"
@@ -73,7 +102,7 @@ def jobs_for(args, embedding):
             cells += [(f"attack/{form}/{label}/{role.replace(' ', '_')}", ["attack"], form, role, 1)
                       for role in roles for form in ("bare", "persuasive")]
         for label, policies, form, role, reps in cells:
-            argv = ["run", "--system", system, "--tasks", str(tasks), "--reserved",
+            argv = ["run", "--system", architecture(system), "--tasks", str(tasks), "--reserved",
                     *map(str, [*args.reserved, args.train_tasks]),
                     "--out", str(Path(args.out) / args.phase / label),
                     "--model", args.model, "--max-calls", "32", "--limit", "8192", "--context", "32768",
@@ -136,7 +165,7 @@ def completed_rows(jobs, tasks):
         if not (out / "COMPLETE.json").exists():
             raise ValueError(f"incomplete run: {out}; no pooled contrasts on partial cells")
         manifest = json.loads((out / "manifest.json").read_text())
-        if (manifest["source"] != source_digest() or manifest["system"]["system"] != job["system"]
+        if (manifest["source"] != source_digest() or manifest["system"]["system"] != architecture(job["system"])
                 or manifest["compromised"] != job["role"] or manifest["max_calls"] != 32
                 or manifest["tasks_sha256"] != digest(job["argv"][job["argv"].index("--tasks") + 1])
                 or (job["artifact_sha256"] and
@@ -148,7 +177,7 @@ def completed_rows(jobs, tasks):
             raise ValueError(f"incomplete/wrong schedule despite completion marker: {out}")
         for trace in traces:
             row = score(trace, task_map[trace["task_id"]])
-            row.update(seed=job["seed"], role=job["role"], form=job["form"])
+            row.update(system=job["system"], seed=job["seed"], role=job["role"], form=job["form"])
             rows.append(row)
     return rows
 
@@ -250,6 +279,8 @@ def main(argv=None):
     ap.add_argument("command", choices=["run", "report", "plan"])
     ap.add_argument("--phase", choices=["pilot", "main"], default="pilot")
     ap.add_argument("--learned-root", required=True)
+    ap.add_argument("--assets", help="Shared frozen assets.json (separate from new profile output root)")
+    ap.add_argument("--gdesigner-root", help="Existing G-Designer output root; do not copy or alter live artifacts")
     ap.add_argument("--dev-tasks", required=True)
     ap.add_argument("--eval-tasks", required=True)
     ap.add_argument("--train-tasks", required=True)
@@ -261,7 +292,7 @@ def main(argv=None):
     ap.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     ap.add_argument("--approved-gpu-hours", type=float)
     args = ap.parse_args(argv)
-    embedding = json.loads((Path(args.learned_root) / "assets.json").read_text())["embedding"]
+    embedding = json.loads(Path(args.assets or Path(args.learned_root) / "assets.json").read_text())["embedding"]
     jobs, tasks = jobs_for(args, embedding)
     plan = {"phase": args.phase, "source": source_digest(), "tasks_sha256": digest(
         args.dev_tasks if args.phase == "pilot" else args.eval_tasks), "jobs": jobs}
@@ -269,7 +300,7 @@ def main(argv=None):
         pilot = json.loads((Path(args.out) / "pilot/summary.json").read_text())
         if (not pilot["passed"] or pilot["source"] != source_digest()
                 or pilot["tasks_sha256"] != digest(args.dev_tasks)):
-            raise ValueError("a complete, current, passed four-system pilot is required")
+            raise ValueError("a complete, current, passed five-condition pilot is required")
         for system in LEARNED:
             seed = args.seeds[0]
             current = next(j["artifact_sha256"] for j in jobs if j["system"] == system and j["seed"] == seed)

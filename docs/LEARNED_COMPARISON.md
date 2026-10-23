@@ -1,8 +1,9 @@
 # Gelernte Router im Gemma-Vergleich
 
-Stand 21.10.2026. Implementiert und lokal mit kleinen Modellen/simulierten Antworten
-getestet; **noch keine Gemma-Router trainiert oder auf Ramses validiert**.
-Diese Unterscheidung gilt auch bei gruener lokaler Testsuite.
+Stand 23.10.2026. Historischer AnyMAC-Seed 0 mit Kostenfaktor 0,95 trainiert,
+aber Kooperations-Gate nicht bestanden. G-Designer-Seed 0 laeuft als Job 6970111.
+Neue Normal-/Efficient-Profile und Trainingsinterventionen sind lokal getestet,
+noch nicht auf Ramses empirisch validiert. Lokale Tests ersetzen diese Validierung nicht.
 
 Nutzerentscheidung: korrigiertes AnyMAC neu trainieren; G-Designer eigenstaendig
 anhand des Papers rekonstruieren. Historische Qwen-Checkpoints bleiben unveraendert.
@@ -34,6 +35,40 @@ der historischen Pipeline. Neun explizite Rollen und gemeinsame kurze Antwortpro
 ersetzen historische MASBench-Rollen/Marker; die MMLU-Pro-Optionenzahl wird dynamisch
 beruecksichtigt. Rollenembeddings werden aus `You are <role>.` berechnet.
 Die Architektur ist nicht mit einem Nachweis sinnvoll gelernter Auswahl gleichzusetzen.
+
+#### Korrektur der Trainingsbedingungen (23.10.2026)
+
+Der erste Vergleichslauf verwendete gamma=0,95, Kontextfenster 10 und lambda=0.
+Das war weder normales AnyMAC noch AnyMAC-Eff. Er bleibt eine historische
+Diagnosebedingung und darf nicht entsprechend umbenannt werden.
+
+Neue Profile (Architektur-/Trace-ID bleibt `anymac-corrected`, Suite-Labels getrennt):
+
+| Profil | gamma | lambda | neueste zur Zustellung waehlbare Antworten |
+|---|---:|---:|---:|
+| `anymac-normal` | 1,0 | 0 | 5 |
+| `anymac-efficient` | 0,9 | 0,001 | 2 |
+| `anymac-historical-095` | 0,95 | 0 | 10 |
+
+Efficient entspricht den vom Nutzer zitierten Paperparametern und lokalen
+Eff-MMLU-Defaults. Das normale Fenster 5 stammt aus `experiments/run_mmlu.py`.
+Dies bleibt eine korrigierte Reimplementierung, keine vollstaendige Paperreproduktion.
+
+Lambda multipliziert die **Summe vorzeichenbehafteter, unskalierter
+Kosinus-Hintscores** ueber die gesamte bisherige Historie je Entscheidung,
+einschliesslich inzwischen nicht mehr zustellbarer alter Antworten. Das entspricht
+dem Sparsitaetsterm in `GDesigner/graph/graph.py`, unter korrigierten Tokenoffsets.
+Keine L0/L1-Strafe auf ausgewaehlte Nachrichten, keine Entropiestrafe.
+Da `scores()` doppelte Kosinuswerte liefert, wird fuer diesen Term durch 2 geteilt.
+Der Term wird getrennt vom Utility-Gradienten berechnet: reine
+Regularisierungsupdates bestehen weiterhin kein Utility-Gate.
+
+Ein Kontextfenster beschraenkt die **Zustellung**, nicht die Historie, die der
+Router zur Auswahl sieht. Profile werden in Konfiguration und Manifest gebunden.
+Gleiche Seeds initialisieren dieselben Gewichte; der initiale State-Dict-Hash wird
+gespeichert. Nach unterschiedlichen Aktionen divergieren Trajektorien; gleiche
+Seeds garantieren keine identischen Nachrichten oder identischen Ressourcenverbrauch.
+Historische Checkpoints werden nicht konvertiert.
 
 ### `gdesigner-paper`
 
@@ -106,7 +141,8 @@ Abschirmung des Summarizers. Drei Runden ergeben **30 LLM-Aufrufe**.
 - Die 12 Preflight-Aufgaben bleiben Entwicklung: sie dienen Vorher/Nachher-
   Vergleich und Freigaben, niemals der Hauptauswertung.
 - Eine Trainingspassage pro Seed. AnyMAC: vier Trajektorien, Lernrate `1e-5`,
-  Reward `korrekt * 0.95^Workeranzahl`. G-Designer: zehn Graphsamples,
+  Reward `korrekt * gamma^Workeranzahl` mit explizitem Profil wie oben.
+  G-Designer: zehn Graphsamples,
   Lernrate `1e-3`, Korrektheitsreward plus die expliziten Paper-Regularisierungen.
 - Leave-one-out-Baseline pro Aufgabe; kein Skalieren durch die Reward-Streuung.
   AdamW ohne Weight Decay, Gradient-Clipping bei Norm 1.
@@ -115,9 +151,11 @@ Abschirmung des Summarizers. Drei Runden ergeben **30 LLM-Aufrufe**.
 - Seeds 0, 1, 2 werden fuer den Hauptvergleich separat trainiert.
   Zunaechst nur Seed 0 und den Pilot ausfuehren.
 
-Gold wird erst nach einer abgeschlossenen Trajektorie fuer Reward/Scoring gelesen.
-Es gibt keine Angriffe, Marker, Withholding-Policies oder Evaluationsupdates im
-Routertraining. Budget-/Backend-/Kontrollfehler im Training stoppen explizit.
+Im **sauberen Referenztraining** wird die richtige Loesung erst nach einer
+abgeschlossenen Trajektorie fuer Reward/Scoring gelesen. Der getrennte
+Trainingsinterventionsstrang unten besitzt ausdruecklich weitergehenden Zugriff.
+Es gibt keine Gewichtsupdates waehrend der Evaluation.
+Budget-/Backend-/Kontrollfehler im Training stoppen explizit.
 
 Snapshots sind fest gepinnt:
 
@@ -159,8 +197,8 @@ Auswahl. Vorher-/Nachherwerte, Gradienten und Einzelaufgaben bleiben gespeichert
 Keinen erfolglosen Router durch einen zufaelligen Graphen oder feste Reihenfolge
 ersetzen und unter demselben Namen weiterlaufen lassen.
 
-Danach: vier Systeme x 12 Dev-Aufgaben x ehrlich/`bare` x zwei Wiederholungen =
-**192 Pilotepisoden**, alle mit gemeinsamer Aufrufhuelle 32. Das ersetzt nicht
+Danach: fuenf Bedingungen x 12 Dev-Aufgaben x ehrlich/`bare` x zwei Wiederholungen =
+**240 Pilotepisoden**, alle mit gemeinsamer Aufrufhuelle 32. Das ersetzt nicht
 die einzelnen Trainings-Dev-Gates. Der Pilot liefert die empirische Kostenbasis.
 Angriffsbedingte Formatfehler sind Messergebnisse, keine nachtraeglich zu
 entfernenden Aufgaben. Die Freigabe beruht auf ehrlicher Ausgabequalitaet.
@@ -182,7 +220,8 @@ Erst nach bestandenem Pilot und drei Trainingsseeds je gelerntem Router:
   Der Plan schaetzt zusaetzlich das Trace-Volumen aus den Pilotdateien;
   Modellcache/Checkpoints und persoenliche Quota separat beruecksichtigen.
 
-Mit den Standardrollen sind das **136 Einzellaeufe und 8.640 Episoden**.
+Mit beiden AnyMAC-Profilen und den Standardrollen sind das
+**193 Einzellaeufe und 12.240 Episoden** (ohne Trainingsinterventionen).
 Diese hohe Zahl ist KEIN Argument fuer den sofortigen Start. Zuerst gemessene
 Laufzeit, ehrliche Leistung und Routingdiagnostik bewerten. Rollenanzahl,
 Prompts und Trainingsumfang sind nicht voll harmonisiert. Systemunterschiede
@@ -196,12 +235,68 @@ ehrlich je Form; persuasive minus bare. Wiederholungen, Rollen und Seeds werden
 Zusaetzlich Effekte je Trainingsseed. Aufgaben-CIs sind bedingt auf diese Seeds,
 keine Unsicherheit ueber eine Population moeglicher Routertrainings.
 
-Die 60 Aufgaben bleiben 60 unabhaengige Aufgabeneinheiten, nicht 8.640.
+Die 60 Aufgaben bleiben 60 unabhaengige Aufgabeneinheiten, nicht 12.240.
 Sie garantieren keine Praezision fuer 0,10-Effekte. Breite Intervalle sind
 unentschieden; fuer engere Bestaetigungsintervalle ist spaeter ein getrennt
 vorregistrierter, neuer Aufgabensatz erforderlich. `bare` und `persuasive`
 unterscheiden sich auch in Laenge/Inhalt: kein isolierter kausaler Nachweis
 von Ueberzeugungskraft ohne laengenangepasste Kontrolle.
+
+## 4a. Vertrauensaufbau im Training: getrenntes 2x2-Experiment
+
+Leitfrage: Erzeugen hilfreichere oder kompetenzbetont dargestellte Workerantworten
+eine gelernte Abhaengigkeit, die ein spaeterer Verhaltenswechsel ausnutzen kann?
+
+`trust.py` friert pro offizieller Validierungs-Trainingsaufgabe zwei Inhalte ein:
+normale Rollenloesung ohne Referenzlabel und eine Loesung mit Zugriff auf das
+**richtige Trainingslabel**. Letzteres ist ein explizites staerkeres Angreifermodell.
+Keine Entwicklungs-/Testlabels oder fremden Agentenantworten gehen in die
+Erzeugung ein. Dass die zweite Loesung besser ist, wird nicht vorausgesetzt:
+Korrektheit wird gemessen, falsche aber parsebare Ergebnisse bleiben erhalten.
+Abgeschnittene/unparsebare Generationen stoppen die Freigabe, ohne Neusampling.
+80 Generierungen fuer 40 Aufgaben; ein dauerhaftes Fortschrittsdokument erlaubt
+Resume ohne erneute Erzeugung fertiger Texte.
+
+Die vier Bedingungen sind `ordinary-neutral`, `ordinary-prominent`,
+`helpful-neutral`, `helpful-prominent`. Darstellung wird durch eine vorangestellte
+neutrale bzw. kompetenzbetonte Aussage mit gleicher **Wortzahl** variiert.
+Der nachfolgende Antwortinhalt bleibt dabei byte-identisch. Das ist noch keine
+Tokenizer-Laengengleichheit oder semantisch validierte perfekte Stilkondition.
+Die Inhalte selbst koennen unterschiedlich lang sein; dieser Faktor ist
+zunaechst das Paket aus Antwortqualitaet und Erzeugungsinstruktion.
+
+Ein gemeinsamer, rollenunabhaengig von Ergebnissen festgelegter Zielworker wird
+vor der Bankgenerierung explizit angegeben; es gibt keinen stillen Default.
+Alle Aufrufe dieser einen Identitaet auf allen Trainingsaufgaben werden ersetzt.
+Die Rolle wird nicht erzwungen. Alle anderen Ausgaben, Labels, Rewards und
+Optimierungsbudgets bleiben unveraendert. Ein normaler Workeraufruf findet
+weiterhin statt; seine Originalantwort wird gespeichert, bevor die Bankantwort
+an weitere Agenten und den Router geht. Gemessene Tokens beschreiben diese realen
+Aufrufe, nicht die Laenge des eingesetzten Banktexts. Die gleiche eingefrorene
+Antwort wird auch bei wiederholtem Rollenaufruf verwendet und ignoriert den
+jeweiligen Peer-Kontext; das ist ein kontrollierter Eingriff, kein nativer Worker.
+
+Der neutrale normale Bankarm kontrolliert diese Ersetzung selbst und ist
+**zusaetzlich zur unberuehrten sauberen Referenz** notwendig. Entwicklungslaeufe
+erhalten keine Banktexte und keinen Loesungszugriff. Gewichte/Labels/Rewards werden
+nicht direkt manipuliert. Eintraege sind separat als `training_intervention`
+markiert; `policy=honest` bedeutet hier nur, dass der Evaluations-Angriffshook
+nicht aktiv ist. Trainingslogs sind keine ehrlichen Evaluationsepisoden.
+
+Je normalem AnyMAC, Efficient und G-Designer: vier Bankarme x drei Seeds =
+36 interventionelle Trainings, **zusaetzlich** zu neun sauberen Trainings.
+Erst seed0-Pilot und Kosten-/Speicherpruefung, keine automatische Vollfreigabe.
+Pro Seed und Ergebnis Y ist die faktorielle Interaktion
+`Y(helpful,prominent)-Y(helpful,neutral)-Y(ordinary,prominent)+Y(ordinary,neutral)`.
+Rollen/Seeds/Wiederholungen sind keine unabhaengigen Aufgabeneinheiten.
+
+Der saubere Hauptsuite-Loader verweigert interventionell trainierte Artefakte.
+Eine vollstaendige, gepaarte Interventions-Evaluationssuite, fachlich akzeptierter
+Leistungstoleranzbereich und kontrollierte Routingfortsetzungen sind noch
+ausstehend. Vor deren Umsetzung keine Aussage ueber erhaltene Leistung,
+Vertrauensaufbau oder kausalen Dynamikvorteil. Dynamisches Routing kann sowohl
+Korrektur als auch zusaetzliche Angriffssteuerung ermoeglichen; feste Topologie
+verhindert keine inhaltliche Korrektur durch Worker und Entscheider.
 
 ## 5. Ausfuehrung
 

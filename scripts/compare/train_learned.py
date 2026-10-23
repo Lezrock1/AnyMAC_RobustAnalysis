@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -87,9 +88,15 @@ def atomic_save(path, data):
     tmp.replace(path)
 
 
-def run_episode(system, llm, task, rep, sample, seed, max_calls):
-    ep = Episode(system=system.name, task=task, policy="honest", rep=rep,
-                 compromised=system.roles[0], llm=llm, max_calls=max_calls)
+def run_episode(system, llm, task, rep, sample, seed, max_calls, intervention=None):
+    if intervention is None:
+        ep = Episode(system=system.name, task=task, policy="honest", rep=rep,
+                     compromised=system.roles[0], llm=llm, max_calls=max_calls)
+    else:
+        from trust import TrainingEpisode
+        ep = TrainingEpisode(system=system.name, task=task, policy="honest", rep=rep,
+                             compromised=system.roles[0], llm=llm, max_calls=max_calls,
+                             intervention=intervention)
     generator = torch.Generator().manual_seed(seed)
     trace = ep.run(lambda e: system(e, task, sample=sample, generator=generator))
     row = score(trace, task)
@@ -159,6 +166,51 @@ def routing_diagnostics(system, dev, rows):
             "note": "Task sensitivity and worker use, NOT evidence of competence-based routing."}
 
 
+ANYMAC_PROFILES = {
+    "normal": {"reward_decay": 1.0, "sparse_context": 0.0, "max_context": 5},
+    "efficient": {"reward_decay": 0.9, "sparse_context": 1e-3, "max_context": 2},
+    "historical-095": {"reward_decay": 0.95, "sparse_context": 0.0, "max_context": 10},
+}
+
+
+def training_config(config, profile):
+    config = json.loads(json.dumps(config))
+    if config["system"] == "anymac-corrected":
+        if profile not in ANYMAC_PROFILES:
+            raise ValueError("AnyMAC training requires an explicit normal/efficient/historical-095 profile")
+        config.update(ANYMAC_PROFILES[profile], training_profile=profile)
+    elif profile is not None:
+        raise ValueError("AnyMAC profiles cannot be applied to G-Designer")
+    return config
+
+
+def context_regularizer(policy, replay):
+    """Original signed cosine penalty over all history, including ineligible old responses.
+
+    scores() returns 2*cosine; the upstream sparse_context term uses unscaled cosine.
+    Corrected token offsets are supplied by policy.scores, not the upstream indexing.
+    """
+    weight = policy.config.get("sparse_context", 0.0)
+    if weight == 0:
+        return torch.tensor(0.0)
+    history, authors, terms = [], [], []
+    for step in replay["steps"]:
+        if history:
+            _, hints = policy.scores(replay["task"], history, authors)
+            terms.append(weight * (hints / 2).sum())
+        if step["role"] < len(policy.config["roles"]):
+            history.append(step["embedding"])
+            authors.append(step["role"])
+    return torch.stack(terms).sum() if terms else torch.tensor(0.0)
+
+
+def episode_reward(correct, workers, config):
+    if workers < 0:
+        raise ValueError("worker count must be nonnegative")
+    decay = config["reward_decay"] if config["system"] == "anymac-corrected" else 1.0
+    return float(correct) * decay ** workers
+
+
 def train(args, llm=None, embedder=None, config=None, policy=None):
     if args.samples < 2 or args.epochs < 1:
         raise ValueError("training requires >=2 independent rollouts per task and >=1 epoch")
@@ -169,12 +221,23 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
         raise ValueError("training and development sets must be nonempty")
     llm = llm or OllamaChat(args.url, args.model, args.limit, args.context, args.threads)
     identity = llm.identity()
+    intervention = None
+    bank = getattr(args, "training_bank", None)
+    condition = getattr(args, "training_condition", None)
+    if bool(bank) != bool(condition):
+        raise ValueError("--training-bank and --training-condition must be supplied together")
+    if bank:
+        from trust import TrainingMessages
+        intervention = TrainingMessages(bank, training, identity, condition)
     embedder = embedder or Embedder(args.embedding_model)
     torch.manual_seed(args.seed)
-    config = json.loads(json.dumps(config or new_config(args.system, backbone=args.backbone)))
+    config = training_config(config or new_config(args.system, backbone=args.backbone),
+                             getattr(args, "anymac_profile", None))
     config["seed"] = args.seed
     embeddings = torch.stack([embedder(f"You are {role}.") for role in
                               config["roles"] + ([DECIDER] if args.system == "anymac-corrected" else [])])
+    if policy is not None:
+        policy.config = config
     policy = policy or policy_from_config(config, embeddings, args.backbone)
     system = LearnedSystem(policy, embedder)
     optimizer = torch.optim.AdamW(policy.parameters(), lr=args.lr, weight_decay=0)
@@ -188,6 +251,17 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
                 "seed": args.seed, "samples": args.samples, "epochs": args.epochs, "lr": args.lr,
                 "max_calls": args.max_calls, "source": source_digest(), "runtime_sources": runtime_sources(),
                 "environment": environment()}
+    manifest["training_intervention"] = (
+        {"bank_sha256": intervention.sha256, "condition": intervention.condition,
+         "role": intervention.role, "coverage": "every invocation on all training tasks",
+         "access": "worker-output-only-with-training-answer-key-for-helpful-content"}
+        if intervention else None)
+    if intervention and intervention.role not in config["roles"]:
+        raise ValueError("intervention role is not a worker in this router configuration")
+    initial_hash = hashlib.sha256()
+    for name, tensor in sorted(policy.state_dict().items()):
+        initial_hash.update(name.encode())
+        initial_hash.update(tensor.detach().cpu().contiguous().numpy().tobytes())
     out = Path(args.out)
     with lock(out):
         mpath = out / "training_manifest.json"
@@ -219,17 +293,23 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
             replays, rewards = [], []
             for sample in range(args.samples):
                 seed = args.seed * 10000000 + index * args.samples + sample
-                _, row, replay = run_episode(system, llm, task, sample + 1, True, seed, args.max_calls)
+                trace, row, replay = run_episode(system, llm, task, sample + 1, True, seed, args.max_calls, intervention)
+                if intervention:
+                    # Attempt log may contain repeated samples after interruption mid-task.
+                    with (out / "training_intervention_attempts.jsonl").open("a") as f:
+                        f.write(json.dumps({"task_index": index, "sample": sample, "trace": trace}) + "\n")
                 replays.append(replay)
                 # No gold is read by either router. Reward is computed only after finish().
                 length = len(replay["steps"]) - 1 if args.system == "anymac-corrected" else 0
-                rewards.append(float(row["correct"]) * (0.95 ** length))
+                rewards.append(episode_reward(row["correct"], length, config))
             optimizer.zero_grad(set_to_none=True)
             losses, regularizers = [], []
             for j, replay in enumerate(replays):
                 # Leave-one-out baseline is independent of this sample's action.
                 baseline_reward = (sum(rewards) - rewards[j]) / (len(rewards) - 1)
                 log_prob, regularizer = policy.objective(replay)
+                if args.system == "anymac-corrected":
+                    regularizer = regularizer + context_regularizer(policy, replay)
                 utility_loss = -(rewards[j] - baseline_reward) * log_prob / len(replays)
                 loss = utility_loss + regularizer / len(replays)
                 if not torch.isfinite(loss):
@@ -259,7 +339,8 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
             print(f"{args.system} seed={args.seed} {index + 1}/{len(jobs)} "
                   f"reward={sum(rewards)/len(rewards):.3f} grad={float(norm):.4g}", flush=True)
         atomic_save(final, policy.state_dict())
-        metadata = {**manifest, "artifact_sha256": digest(final), "nonzero_updates": progress["nonzero_updates"],
+        metadata = {**manifest, "initial_policy_sha256": initial_hash.hexdigest(),
+                    "artifact_sha256": digest(final), "nonzero_updates": progress["nonzero_updates"],
                     "reward_varying_tasks": progress["reward_varying_tasks"],
                     "utility_updates": progress["utility_updates"],
                     "untrained_development": summarize(baseline)}
@@ -322,6 +403,11 @@ def main(argv=None):
     tr.add_argument("--samples", type=int, default=4)
     tr.add_argument("--epochs", type=int, default=1)
     tr.add_argument("--lr", type=float, default=1e-5)
+    tr.add_argument("--anymac-profile", choices=tuple(ANYMAC_PROFILES),
+                    help="Required for AnyMAC; explicit normal or efficient condition")
+    tr.add_argument("--training-bank", help="Frozen 2x2 message bank; training only, never development")
+    tr.add_argument("--training-condition", choices=("ordinary-neutral", "ordinary-prominent",
+                                                    "helpful-neutral", "helpful-prominent"))
     ga = sub.add_parser("gate")
     ga.add_argument("--checkpoint", required=True)
     ga.add_argument("--dev-tasks", required=True)

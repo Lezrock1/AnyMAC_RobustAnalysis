@@ -156,17 +156,19 @@ directory in every new shell/job.
 
 ```bash
 # Login node, new pinned worktree:
-cd ~/AnyMAC_compare_full
+cd ~/AnyMAC_profiles
 export ANYMAC_REPO=$HOME/AnyMAC_RobustAnalysis
 bash scripts/compare/learned.sh prepare
 
 # One otherwise idle allocated A30, 8 CPUs, e.g. via the existing idle allocation.
 # Runtime check: two train tasks, one dev task, two samples. No main-study gate.
-bash scripts/compare/learned.sh smoke anymac-corrected 0
+bash scripts/compare/learned.sh smoke anymac-normal 0
+bash scripts/compare/learned.sh smoke anymac-efficient 0
 bash scripts/compare/learned.sh smoke gdesigner-paper 0
 
 # Only after reviewing the smoke logs, in one GPU allocation per process:
-bash scripts/compare/learned.sh train anymac-corrected 0
+bash scripts/compare/learned.sh train anymac-normal 0
+bash scripts/compare/learned.sh train anymac-efficient 0
 bash scripts/compare/learned.sh train gdesigner-paper 0
 # Each command automatically runs its development gate after training.
 # Run these on distinct allocated GPUs to train concurrently, not on the same GPU.
@@ -180,12 +182,16 @@ checkpoint-per-task disk explosion. A runtime smoke is machine-marked and cannot
 be promoted to the main study.
 
 Resume uses the same command/commit/settings. Outputs:
-`results/compare/learned_gemma12b_v1/{system}/seed{seed}/`.
+`results/compare/learned_gemma12b_profiles_v2/{anymac-normal,anymac-efficient}/seed{seed}/`.
+G-Designer retains `results/compare/learned_gemma12b_v1/gdesigner-paper/seed{seed}/`;
+continue the running job and any resume in its original pinned worktree.
+The old AnyMAC 0.95 artifacts are not converted or overwritten.
 Inspect `progress.json`, `dev_initial.jsonl`, `dev_trained.jsonl` and
 `router.gate.json`. A failed gate is NOT permission to run an untrained substitute.
 After an interruption, the most recent completed training task is durable.
 
-Once **both seed-0 gates pass**, run the four-system pilot in a GPU allocation:
+Once **all three learned-condition seed-0 gates pass**, run the five-condition
+pilot in a GPU allocation (four system families, AnyMAC normal and efficient separate):
 
 ```bash
 # One server per allocated GPU; supports a Slurm mask containing one or several GPUs.
@@ -194,7 +200,7 @@ bash scripts/compare/suite.sh pilot
 bash scripts/compare/suite.sh report pilot
 ```
 
-The pilot has 192 episodes (four systems, 12 development tasks, honest/bare attack,
+The pilot has 240 episodes (five conditions, 12 development tasks, honest/bare attack,
 two repetitions), call envelope 32. It reruns fixed/DyLAN into new output paths,
 without overwriting the old preflight. G-Designer needs 30 calls, so using the old
 17-call ceiling would be an invalid comparison. The pilot reports honest output
@@ -209,15 +215,16 @@ still refuses missing gates:
 
 ```bash
 bash scripts/compare/suite.sh plan
-# Only after reviewing the projection and all six training gates, in a GPU allocation:
+# Only after reviewing the projection and all nine training gates, in a GPU allocation:
 COMPARE_GPU_BUDGET_HOURS=<explicit_approved_amount> bash scripts/compare/suite.sh main
 bash scripts/compare/suite.sh report main
 ```
 
 There is no implicit multi-day start. The admission estimate includes a 25% margin
 but is not a runtime limit; set the Slurm wall time independently. Main data have
-60 independent task units, not thousands. The default full schedule has 136
-runs / 8,640 episodes and can be expensive; inspect the measured projection first.
+60 independent task units, not thousands. The default full schedule has 193
+runs / 12,240 episodes, excluding trust interventions, and can be expensive;
+inspect the measured projection first.
 Thread count is allocated CPUs divided by GPUs. Servers are refused on occupied
 ports, checked against the trained worker identity, and stopped on exit. Queue
 failures remain explicit; rerunning resumes only unfinished cells.
@@ -225,6 +232,67 @@ failures remain explicit; rerunning resumes only unfinished cells.
 The suite deliberately reports these method variants, not unqualified native
 AnyMAC/G-Designer. Role counts/prompts/training costs are not perfectly harmonized;
 between-system differences do not isolate a causal routing effect.
+
+### Reserve the fresh main sample before inspecting its outcomes
+
+Run on the login node in the new pinned worktree, after loading the existing
+project environment. Uses the cached pinned official test parquet, with
+`local_files_only=True`; no new model/data downloads. Excludes IDs and normalized
+duplicate texts, including the official-validation training sample.
+
+```bash
+python scripts/compare/prepare_main.py \
+  --out "$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json" \
+  --reserved "$RESULTS_DIR/screen/screen_tasks_v1.json" \
+    "$RESULTS_DIR/screen/screen_tasks_r2.json" \
+    "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json" \
+    "$RESULTS_DIR/compare/dylan_study_v1/eval_tasks.json" \
+    "$RESULTS_DIR/compare/learned_gemma12b_v1/train_tasks.json"
+```
+
+The sample cannot be overwritten. Main suite now requires the fresh reservation
+marker and bound exclusion hashes; historical 60-task inputs no longer qualify.
+Do not inspect main outcomes to choose role, seed, benchmark or training condition.
+60 tasks do not establish a 5-percentage-point noninferiority margin.
+
+### Optional 2x2 training-message intervention preparation
+
+See [exact threat model and limitations](../../docs/LEARNED_COMPARISON.md#4a-vertrauensaufbau-im-training-getrenntes-2x2-experiment).
+No reward tampering. `trust.sh` requires an explicitly chosen target role; choose
+it before inspecting intervention results. Generate one shared frozen bank with
+normal and answer-key-assisted training content (80 model calls for 40 tasks),
+then freeze the source worktree for generation, training and resume.
+
+```bash
+# One allocated A30; replace the value with the prospectively agreed role:
+bash scripts/compare/trust.sh "$TARGET_ROLE"
+
+# One separate allocated GPU; same code/data/seed/budget for all four arms:
+COMPARE_TRAINING_BANK="$RESULTS_DIR/compare/trust_gemma12b_v1/messages.json" \
+COMPARE_TRAINING_CONDITION=ordinary-neutral \
+  bash scripts/compare/learned.sh train anymac-normal 0
+```
+
+Other arms: `ordinary-prominent`, `helpful-neutral`, `helpful-prominent`.
+Other learned conditions: `anymac-efficient`, `gdesigner-paper`. Outputs are
+separate under `results/compare/trust_gemma12b_v1/CONDITION/LABEL/seedSEED/`.
+All invocations of the target on training tasks are replaced, none forced;
+development is always unmodified. Never mix these checkpoints into the clean
+suite: its artifact loader explicitly refuses them.
+
+Generation-quality failure preserves the progress file and blocks bank emission;
+it does not regenerate until a desired answer appears. A progress file is not a
+usable final bank. Training attempts preserve real original outputs and injected
+texts in `training_intervention_attempts.jsonl`. This append-only audit may include
+repeated partial-task attempts after interruption: completed optimizer tasks are
+tracked only by `progress.json`/the rolling checkpoint. Recorded token usage is
+the original actual call cost, not the token length of the inserted text.
+
+This prepares generation and training, **not** automatic approval of 36
+intervention trainings or a complete manipulation evaluation. Target role,
+acceptable benign-performance loss, dedicated paired evaluation/interaction
+analysis and controlled routing continuations still need completion before
+claiming a trust or dynamic-adaptation result.
 
 | file | content |
 |---|---|

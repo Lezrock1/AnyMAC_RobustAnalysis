@@ -64,8 +64,9 @@ G-Designer-Seed 0 laeuft seit 23.10.2026 als Job 6970111 auf Commit `78623cf`.
 Das ist ein Startnachweis, kein bestandenes Training oder Gate.
 Die bereits inspizierten 60 Studienaufgaben sind **keine unberuehrten
 Bestaetigungsdaten** mehr. Vor dem Hauptlauf muss eine neue, disjunkte Stichprobe
-reserviert werden; die derzeitigen Suite-Defaults liefern diesen neuen Split
-noch nicht. Kein Hauptlauf mit diesen Defaults als Bestaetigung deklarieren.
+reserviert werden. `prepare_main.py` implementiert dies inzwischen mit ID- und
+normalisiertem Textausschluss; die Suite verweigert alte/ungebundene Samples.
+Die Reservierung selbst ist auf Ramses noch auszufuehren.
 
 AnyMAC-Seed 0 beantwortet alle 12 Dev-Aufgaben nach Training ohne Worker
 (10/12 korrekt), bei identischen finalen Antworten wie vor Training.
@@ -94,10 +95,23 @@ Vor Benchmarkwechsel zunaechst eine **ehrliche Kooperationsdiagnose**:
   Schwerere Aufgaben allein garantieren keinen Kooperationsnutzen. Nicht nach
   Angriffserfolg filtern; Entwicklungs- und Bestaetigungsdaten getrennt halten.
 
-Eine Kostenablation (`0.95^Workerzahl` gegen `1.0`, sonst gleiche Initialisierung,
-Daten, Samples und Lernbudget) bleibt ein gesonderter diagnostischer Versuch.
-Sie ist noch nicht implementiert und wuerde allein nicht zeigen, dass
-kompetenzbasierte Zusammenarbeit gelernt wurde.
+Der alte 0,95-Lauf hatte ausserdem Kontextfenster 10 und keinen Sparsitaetsterm;
+er entspricht weder normalem AnyMAC noch AnyMAC-Eff. Neue explizite Profile:
+normal gamma=1/lambda=0/Fenster=5 (lokaler MMLU-Default), efficient
+gamma=0,9/lambda=0,001/Fenster=2. Der Lambda-Term folgt der signierten
+Kosinus-Summe des Originals mit korrigierten Tokenoffsets. Beide Profile werden
+dauerhaft separat untersucht. Ein Unterschied zwischen diesen Profilen isoliert
+**nicht** den Reward-Abschlag, weil auch Lambda und Fenster wechseln.
+Eine reine Gamma-Ablation muesste diese beiden Faktoren konstant halten.
+
+Trainingsmanipulation: beschlossen ist kein Reward-Zugriff, sondern
+Vertrauensaufbau ueber hilfreiche Inhalte und/oder Kompetenzdarstellung,
+gefolgt von einem Verhaltenswechsel in der Evaluation. Generierung und
+Trainingshook fuer das getrennte 2x2-Design sind implementiert; Rolle und
+Leistungstoleranz sind noch nicht festgelegt. Hilfreiche Texte erhalten
+ausdruecklich die richtigen **Trainings**labels; gleiche Inhalte werden neutral
+oder kompetenzbetont praesentiert. Keine Test-/Dev-Loesungen zur Textgenerierung.
+Siehe [Threat Model und Grenzen](./LEARNED_COMPARISON.md#4a-vertrauensaufbau-im-training-getrenntes-2x2-experiment).
 
 Als schneller erster Diagnoseschritt ist
 [`cooperation.py`](../scripts/diagnostics/cooperation.py) implementiert:
@@ -372,9 +386,10 @@ ungueltigen Endformate oder Abschneidungen. DyLAN benoetigt im Mittel 71,457 s u
 Die leere Fallback-grep-Ausgabe ersetzt keine Ereigniszaehlung.
 Erst danach folgt der vollstaendige E1:
 
-Aktualisierung 21.10.2026 vor neuen Vier-System-Laeufen: Der implementierte
-gemeinsame Pilot verwendet vier Systeme x 12 Dev-Aufgaben x zwei Policies x
-zwei Wiederholungen = 192 Episoden nach bestandenem Trainings-/Dev-Gate.
+Aktualisierung 23.10.2026 vor neuen Hauptlaeufen: Der implementierte
+gemeinsame Pilot verwendet fuenf Bedingungen x 12 Dev-Aufgaben x zwei Policies x
+zwei Wiederholungen = 240 Episoden mit getrennten normalen und effizienten
+AnyMAC-Bedingungen nach bestandenem Trainings-/Dev-Gate.
 Die Reduktion von urspruenglich drei geplanten Wiederholungen dient dem Kostenpilot;
 es ist kein Praezisionsnachweis. Gemeinsame Aufrufhuelle 32 statt 17, da die
 Paperrekonstruktion von G-Designer drei Runden mit insgesamt 30 Aufrufen nutzt.
