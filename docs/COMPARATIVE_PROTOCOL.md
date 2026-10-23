@@ -7,7 +7,8 @@ Die [isolierten Folgetests](../scripts/followup/README.md) sind implementiert;
 Feste Referenz und DyLAN sind lokal getestet und bestehen laut uebermitteltem
 Ramses-Preflight die ehrlichen Format-/Fehler-/Trunkierungsschranken. Korrigiertes
 AnyMAC und eine qualifizierte G-Designer-Paperrekonstruktion sind lokal implementiert;
-sauberes Gemma-Routertraining und ihre Ramses-Validierung stehen noch aus.
+AnyMAC-Seed 0 ist inzwischen trainiert, besteht aber das Kooperations-Gate nicht;
+G-Designer hat bislang nur den technischen Smoke bestanden.
 Details, Auslegungen und Startschranken: [gelernter Vergleich](./LEARNED_COMPARISON.md).
 
 ## Ziel und Ressourcen
@@ -46,6 +47,65 @@ Kontextentscheidungen diese Abhaengigkeit erkennen und begrenzen?
    Dabei werden Routergewichte aktualisiert, nicht die Gewichte des Agenten-LLMs.
    Keine Gewichtsupdates waehrend der gemeinsamen Evaluation; keine kuenstliche
    Uebertragung dieser Trainingsfrage auf DyLAN.
+
+### Praezisierung nach den ersten Lernlaeufen
+
+Beschlossene Reihenfolge: **Abhaengigkeits- und Einflussanalyse**, darauf aufbauend
+**Trainingsmanipulation**, erst danach neue Verteidigungen. Sauberes Weitertraining
+und manipuliertes Training sind getrennte Fragen. Eine spaetere Manipulation
+benoetigt ein explizites Angreifermodell (Daten/Rewards/Zugriff), gepaarte saubere
+und manipulierte Trainingsseeds, gleiches Budget, getrennte Entwicklungsdaten und
+einen vorab festgelegten Toleranzbereich fuer ehrliche Leistung. Ein Zieltreffer
+bei Ausgabeersetzung ist noch kein Trainingseffekt.
+
+Die vollstaendige DyLAN/fixed-Serie umfasst laut Ramses-Bericht 37/37 Laeufe.
+Ihre gepoolte Auswertung ist von der kuenftigen Vier-System-Bestaetigung getrennt.
+G-Designer-Seed 0 laeuft seit 23.10.2026 als Job 6970111 auf Commit `78623cf`.
+Das ist ein Startnachweis, kein bestandenes Training oder Gate.
+Die bereits inspizierten 60 Studienaufgaben sind **keine unberuehrten
+Bestaetigungsdaten** mehr. Vor dem Hauptlauf muss eine neue, disjunkte Stichprobe
+reserviert werden; die derzeitigen Suite-Defaults liefern diesen neuen Split
+noch nicht. Kein Hauptlauf mit diesen Defaults als Bestaetigung deklarieren.
+
+AnyMAC-Seed 0 beantwortet alle 12 Dev-Aufgaben nach Training ohne Worker
+(10/12 korrekt), bei identischen finalen Antworten wie vor Training.
+Das ist vorlaeufig ein Effizienzbefund, kein Robustheitsnachweis.
+Ob Kostenbelohnung, fehlende Komplementaritaet, Lernumfang oder etwas anderes
+die Ursache ist, ist damit nicht identifiziert. Das Kooperations-Gate bleibt
+unveraendert; Worker nicht erzwingen und nicht Seeds nach Verwundbarkeit waehlen.
+
+Vor Benchmarkwechsel zunaechst eine **ehrliche Kooperationsdiagnose**:
+
+- Auf neuen, vor Ergebnisinspektion reservierten Entwicklungsaufgaben den
+  gemeinsamen Entscheider ohne Nachrichten und mit festgelegter Kooperation
+  vergleichen; gleiches Modell, Decoding, Entscheiderprompt und Antwortformat.
+  Nur der Nachrichtenkontext darf sich im gepaarten Vergleich unterscheiden.
+- Genauigkeit, Korrekturen (allein falsch, gemeinsam richtig), Verschlechterungen
+  (allein richtig, gemeinsam falsch), Aufrufe und Tokenkosten gepaart auswerten.
+- Unabhaengige Antworten der Workerrollen ohne gegenseitige Nachrichten zeigen
+  Fehlerkorrelation und komplementaeres Potential. Ein Oracle, das irgendeine
+  richtige Workerantwort erkennt, ist nur eine obere Potentialgrenze, keine
+  erreichbare Systemleistung.
+- Die 12 bisherigen Dev-Aufgaben und untrainierte AnyMAC-Routen sind kein
+  ausreichender Nachweis einer MMLU-Pro-Leistungsdecke. Dieselben Modellgewichte
+  mit anderen Rollenprompts garantieren keine unterschiedlichen Kompetenzen.
+- Erst bei ausbleibendem Nutzen einen zusaetzlichen Benchmark anhand ehrlicher
+  Schwierigkeit, Komplementaritaet und sauberer Ausgabeverarbeitung auswaehlen.
+  Schwerere Aufgaben allein garantieren keinen Kooperationsnutzen. Nicht nach
+  Angriffserfolg filtern; Entwicklungs- und Bestaetigungsdaten getrennt halten.
+
+Eine Kostenablation (`0.95^Workerzahl` gegen `1.0`, sonst gleiche Initialisierung,
+Daten, Samples und Lernbudget) bleibt ein gesonderter diagnostischer Versuch.
+Sie ist noch nicht implementiert und wuerde allein nicht zeigen, dass
+kompetenzbasierte Zusammenarbeit gelernt wurde.
+
+Als schneller erster Diagnoseschritt ist
+[`cooperation.py`](../scripts/diagnostics/cooperation.py) implementiert:
+12 bereits bekannte Dev-Aufgaben x zwei Wiederholungen x Entscheider allein
+oder neun unabhaengige Worker plus identischer Entscheider = 48 Episoden,
+264 Modellaufrufe. Das ist explizit ein explorativer Eingriff mit gemeinsamen
+AnyMAC-Prompts, kein natives AnyMAC und kein Ersatz fuer frische Entwicklungs-
+oder Bestaetigungsdaten. Noch keine Ramses-Ergebnisse fuer diesen Eingriff.
 
 MASBench bleibt hoechstens ein spaeterer kleiner Zusatz zur kontrollierten
 Aufgabenstruktur, nicht die Hauptbenchmark. Bestehende Format- und

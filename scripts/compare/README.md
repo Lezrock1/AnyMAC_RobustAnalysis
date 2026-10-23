@@ -48,8 +48,99 @@ Before adding attack policies or treating this as a passed preflight, require ze
 backend/control errors, <=5% invalid final formats and <=5% final truncations per
 system; report worker truncation separately. Context-capacity failures block
 progress. Investigate failures on these dev data without changing historical runs.
-Learned variants are registered separately as `anymac-corrected` and `gdesigner-paper`;
-their clean Gemma training and Ramses validation are still pending.
+Learned variants are registered separately as `anymac-corrected` and `gdesigner-paper`.
+Both runtime smokes finished. AnyMAC seed 0 completed clean training but failed
+the cooperation gate (decider-only on all 12 development tasks). Full G-Designer
+training and its development gate are still outstanding.
+
+## Read-only analysis of completed runs
+
+`../diagnostics/compare_results.py` analyzes the completed 37-run DyLAN study
+(2400 episodes) without rewriting any run files or starting a model server.
+It lives outside this directory so its addition does not change run/training
+source fingerprints. Use the **original pinned source worktree** through `--code`;
+do not update that worktree just to obtain the analyzer. Install/copy the analyzer
+from this revision separately. Commands below assume it is available at
+`$HOME/compare_results.py` and the existing project environment is activated.
+
+```bash
+python "$HOME/compare_results.py" dylan \
+  --code "$HOME/AnyMAC_study" \
+  --input "$HOME/AnyMAC_RobustAnalysis/results/compare/dylan_study_v1" \
+  --out "$HOME/AnyMAC_RobustAnalysis/results/analysis/dylan_study_v1_analysis1"
+
+python "$HOME/compare_results.py" anymac \
+  --code "$HOME/AnyMAC_compare_full" \
+  --input "$HOME/AnyMAC_RobustAnalysis/results/compare/learned_gemma12b_v1/anymac-corrected/seed0" \
+  --dev-tasks "$HOME/AnyMAC_RobustAnalysis/results/compare/gemma12b_preflight_v1/dev_tasks.json" \
+  --out "$HOME/AnyMAC_RobustAnalysis/results/analysis/anymac_seed0_analysis1"
+```
+
+Outputs: `summary.json` and `REPORT.md` in a **new**, separate analysis directory.
+Missing/incomplete cells, changed task/text hashes, source or worker differences
+are errors; no partial result is silently pooled. Trace schema and per-run
+manifest checks use the original runner. CPU thread differences are execution
+metadata, not a decoding difference. Source, input and analyzer hashes are saved.
+
+The DyLAN analysis averages roles/repetitions within tasks, then bootstraps tasks
+10,000 times. It reports attack-minus-honest, persuasive-minus-bare and
+DyLAN-minus-upstream difference-in-differences, plus individual cells and a
+text-quality sensitivity analysis. Honest means use both repetitions; attack
+means use rep1. Descriptive answer transitions additionally match rep1.
+Ranked versus actually selected identities, fallback, consensus rounds, exposure,
+errors and truncated final dependencies are recorded. The last flag includes
+programmatic-consensus voters, unlike the legacy final-LLM-call truncation metric.
+Agreement after exposure is **not** proof of semantic adoption or causal influence.
+
+The AnyMAC diagnostic reports paired predictions, worker roles/use, quality and
+cost before/after training. It does not train, bypass a gate, or establish why
+workers disappeared. See the
+[research priority and benchmark diagnostic](../../docs/COMPARATIVE_PROTOCOL.md#praezisierung-nach-den-ersten-lernlaeufen).
+
+### Immediate honest cooperation diagnostic
+
+G-Designer seed 0 was started as Ramses job **6970111**, using the unchanged
+`78623cf` worktree. Its completion/gate result is not known yet.
+Use a **separate checkout** for the new diagnostics; never pull inside that
+live training worktree.
+
+With the project environment loaded, the CPU analysis commands above need no
+Slurm GPU allocation. The new worktree can supply the scripts directly; copying
+them into `$HOME` is not required.
+
+The first GPU diagnostic uses the already-inspected 12 development tasks and two
+repetitions. For each task/repetition it compares:
+
+1. The AnyMAC `Decider` prompt without worker messages (one call).
+2. All nine AnyMAC worker roles answering independently, with no peer context,
+   followed by the **same** decider prompt with all nine messages (ten calls).
+
+Total: **48 episodes / 264 calls**. This is an exploratory intervention, not native
+AnyMAC, not a learned replacement router, and not an adversarial evaluation.
+Prompts reuse `learned.call_agent` from the original training worktree. Order is
+balanced across conditions; each model call has a fresh chat context. Model,
+decoding/serving, original source and development data are checked against the
+AnyMAC training metadata before any episode is written. This reads metadata only;
+it neither loads nor changes router weights or gates.
+
+```bash
+# From a NEW checkout containing these diagnostics, inside one A30 allocation:
+export ANYMAC_REPO="$HOME/AnyMAC_RobustAnalysis"
+bash scripts/diagnostics/cooperation.sh
+```
+
+The wrapper uses port 11456, honors the allocated GPU mask and cleans up its own
+server. It refuses an occupied port and never pulls a model. Outputs are
+`results/compare/cooperation_dev12_v1/{alone,independent-team}.jsonl`,
+`manifest.json`, `summary.json`, `COMPLETE.json`. Rerun the same pinned command
+to resume; no automatic retries overwrite errors. The summary contains paired
+task-bootstrap accuracy/cost differences, corrections, harms, independent role
+accuracy, answer diversity and an oracle potential bound. Oracle performance is
+not achievable system accuracy. Repetitions are not independent task samples.
+
+This fast diagnostic may motivate a cost ablation or a fresh development study;
+it does not by itself justify a benchmark switch or a causal explanation for
+the trained router's choices. The 12 tasks must not enter the main evaluation.
 
 ## Gelernte Router und Vier-System-Suite
 
