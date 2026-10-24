@@ -64,7 +64,12 @@ export OLLAMA_NUM_PARALLEL=1 OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 
 : "${CUDA_VISIBLE_DEVICES:?Slurm GPU mask missing; do not use unallocated GPUs}"
 [[ "$CUDA_VISIBLE_DEVICES" != *,* ]] || {
   echo "Use one allocated GPU per learned.sh process; explicitly partition CUDA_VISIBLE_DEVICES." >&2; exit 1; }
-port=11452; [[ "$system" != gdesigner-paper ]] || port=11453
+port=11452
+if [[ "$system" == gdesigner-paper ]]; then
+  [[ "$seed" -le 10000 ]] || { echo "seed too large for G-Designer port allocation" >&2; exit 2; }
+  port=11453
+  [[ "$seed" -eq 0 ]] || port=$((45000 + seed))
+fi
 if [[ -n "$profile" ]]; then
   [[ "$seed" -le 10000 ]] || { echo "seed too large for profile-specific port allocation" >&2; exit 2; }
   port=$((12000 + 3 * seed))

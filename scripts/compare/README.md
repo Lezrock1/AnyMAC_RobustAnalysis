@@ -248,6 +248,10 @@ inspect the measured projection first.
 Thread count is allocated CPUs divided by GPUs. Servers are refused on occupied
 ports, checked against the trained worker identity, and stopped on exit. Queue
 failures remain explicit; rerunning resumes only unfinished cells.
+Independent `learned.sh` G-Designer trainings use port 11453 for seed 0 and
+45000 + seed for seeds 1..10000, so different seeds can share a multi-GPU node.
+AnyMAC profiles retain their separate seed/profile ports. Never launch two
+jobs for the same system/profile and seed.
 
 The suite deliberately reports these method variants, not unqualified native
 AnyMAC/G-Designer. Role counts/prompts/training costs are not perfectly harmonized;
