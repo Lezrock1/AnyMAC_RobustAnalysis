@@ -1,9 +1,12 @@
 # Gelernte Router im Gemma-Vergleich
 
-Stand 23.10.2026. Historischer AnyMAC-Seed 0 mit Kostenfaktor 0,95 trainiert,
-aber Kooperations-Gate nicht bestanden. G-Designer-Seed 0 laeuft als Job 6970111.
-Neue Normal-/Efficient-Profile und Trainingsinterventionen sind lokal getestet,
-noch nicht auf Ramses empirisch validiert. Lokale Tests ersetzen diese Validierung nicht.
+Stand 24.10.2026, laut uebermittelten Ramses-Ausgaben. Historischer AnyMAC-Seed 0
+mit Kostenfaktor 0,95 trainiert, aber Kooperations-Gate nicht bestanden.
+G-Designer-Seed 0 und neues AnyMAC-normal Seed 0 bestehen das Dev-Gate.
+AnyMAC-efficient Seed 0 ist fertig trainiert, besteht aber das Kooperations-Gate
+nicht. Normal-/Efficient-Seed 1 wurden als Jobs 6984386/6984387 gestartet.
+Trainingsinterventionen sind lokal getestet, noch nicht auf Ramses empirisch
+validiert. Lokale Tests ersetzen diese Validierung nicht.
 
 Nutzerentscheidung: korrigiertes AnyMAC neu trainieren; G-Designer eigenstaendig
 anhand des Papers rekonstruieren. Historische Qwen-Checkpoints bleiben unveraendert.
@@ -69,6 +72,39 @@ Gleiche Seeds initialisieren dieselben Gewichte; der initiale State-Dict-Hash wi
 gespeichert. Nach unterschiedlichen Aktionen divergieren Trajektorien; gleiche
 Seeds garantieren keine identischen Nachrichten oder identischen Ressourcenverbrauch.
 Historische Checkpoints werden nicht konvertiert.
+
+#### Erste Profilbefunde (Seed 0, zwoelf bekannte Dev-Aufgaben)
+
+Alle drei gelernten Bedingungen erreichen vor und nach Training 10/12 korrekte
+Antworten. Fuer beide AnyMAC-Profile bleiben sogar alle zwoelf geparsten
+Endantworten unveraendert. Normales AnyMAC reduziert die mittlere Aufrufzahl von
+8,5 auf 4 und verwendet nach Training ausschliesslich Historian: 36 Aufrufe
+ueber zwoelf Aufgaben, Worker in jeder Episode. Das belegt Auswahlkonzentration,
+noch keine inhaltliche Abhaengigkeit. Ob jede Aufgabe genau drei Aufrufe hat und
+welche Nachrichten den Decider erreichen, muss aus Einzeltraces bestimmt werden.
+Efficient reduziert von 8,5 auf einen Aufruf und verwendet auf diesen Aufgaben
+keine Worker. Sein Slurm-Fehlerstatus stammt vom absichtlich fehlschlagenden
+Dev-Gate nach abgeschlossenem Training, nicht von einem Trainingsabbruch.
+G-Designer bleibt bei 30 Aufrufen; 3/40 Trainingsaufgaben haben Utility-Updates,
+gegenueber 7/40 bei Normal und 16/40 bei Efficient.
+
+Ein Profilvergleich variiert gamma, lambda und Kontextfenster gemeinsam:
+keine isolierte Kostenfaktor-Ablation. Ein Seed und zwoelf bekannte Aufgaben
+belegen weder allgemeine Worker-Nutzlosigkeit noch allgemeine Angriffsfreiheit.
+Alle Seeds einschliesslich Gate-Fehlschlaegen bleiben im Bericht; keine
+Ersetzung durch einen nachtraeglich ausgewaehlten kooperativeren Seed.
+Die bestehende Hauptsuite bleibt fuer nicht bestandene Checkpoints gesperrt.
+Eine etwaige separate Berichterstattung solcher Betriebsmodi benoetigt einen
+expliziten Plan, nicht die stille Abschwaechung des Gates.
+
+Die schreibgeschuetzte Auswertung ausserhalb des Trainingsquellverzeichnisses
+trennt pro Rolle Router-Sichtbarkeit, LLM-Zustellung und strukturelle Pfade zur
+Endantwort. Legacy-Expositionswerte beziehen sich nur auf die im Trace benannte
+kompromittierte Rolle; null ist keine Aussage ueber Zustellung anderer Rollen.
+`initial_distribution_max_task_range` im Gate bezeichnet die Verteilung bei
+**leerer Historie des ausgewerteten Routers**, nicht zwingend die untrainierte
+Policy. Variation dieser Verteilung ist mit identischem Argmax ueber alle
+Aufgaben vereinbar und kein Beleg fuer kompetenzbasierte Auswahl.
 
 ### `gdesigner-paper`
 

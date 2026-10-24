@@ -239,6 +239,79 @@ def study(base, runner, scoring, dylan, draws=10000):
                       "Between-system roles/prompts differ; this is not a router-only causal contrast."]}
 
 
+def routing_trace(trace):
+    """Count recorded paths, not semantic influence; router visibility is not LLM delivery."""
+    events, messages = trace["events"], trace["messages"]
+    calls = [e for e in events if e["type"] == "call"]
+    workers = [e for e in calls if e["kind"] == "worker"]
+    sequence = [e["identity"] for e in workers]
+    worker_ids = {mid for mid, message in messages.items() if message["kind"] == "worker"}
+    producers = {e["msg"]: e for e in calls if e["msg"] is not None}
+    final_roots = final_dependencies(trace)
+    direct = (set(producers[trace["final"]["msg"]]["inputs"])
+              if trace["final"] and trace["final"]["msg"] else final_roots)
+    ancestors, pending = set(), list(final_roots)
+    while pending:
+        mid = pending.pop()
+        if mid not in ancestors:
+            ancestors.add(mid)
+            pending.extend(producers[mid]["inputs"])
+    router_seen = {mid for e in events if e["kind"] == "router" for mid in e["inputs"]}
+    llm_seen = {mid for e in calls for mid in e["inputs"]}
+    counts = Counter(sequence)
+    roles = {}
+    for role, count in sorted(counts.items()):
+        mids = {mid for mid in worker_ids if messages[mid]["author"] == role}
+        roles[role] = {
+            "calls": count,
+            "messages": len(mids),
+            "router_seen_messages": len(mids & router_seen),
+            "llm_delivered_messages": len(mids & llm_seen),
+            "other_worker_deliveries": sum(len(mids.intersection(e["inputs"])) for e in workers
+                                           if e["identity"] != role),
+            "self_worker_deliveries": sum(len(mids.intersection(e["inputs"])) for e in workers
+                                          if e["identity"] == role),
+            "aggregator_deliveries": sum(len(mids.intersection(e["inputs"])) for e in calls
+                                         if e["kind"] == "aggregator"),
+            "final_direct_messages": len(mids & direct),
+            "final_ancestor_messages": len(mids & ancestors),
+        }
+    return {
+        "task_id": trace["task_id"],
+        "worker_sequence": sequence,
+        "worker_calls": len(workers),
+        "distinct_worker_roles": len(counts),
+        "repeated_role_calls": len(workers) - len(counts),
+        "roles": roles,
+        "final_has_direct_worker_input": bool(worker_ids & direct),
+        "final_has_worker_ancestor": bool(worker_ids & ancestors),
+        "task_graph_edges": [e["edges"] for e in events if e["type"] == "decision"
+                             and e["identity"] == "GDesigner-task-graph"],
+    }
+
+
+def routing_summary(traces):
+    rows = sorted((routing_trace(t) for t in traces), key=lambda r: r["task_id"])
+    totals = {}
+    sequences = Counter(tuple(row["worker_sequence"]) for row in rows)
+    for row in rows:
+        for role, values in row["roles"].items():
+            totals.setdefault(role, Counter()).update(values)
+    calls = sum(row["worker_calls"] for row in rows)
+    return {
+        "tasks": rows,
+        "role_totals": {role: dict(values) for role, values in sorted(totals.items())},
+        "worker_sequences": [{"sequence": list(sequence), "tasks": count}
+                             for sequence, count in sorted(sequences.items())],
+        "mean_worker_calls": mean(row["worker_calls"] for row in rows),
+        "mean_distinct_worker_roles": mean(row["distinct_worker_roles"] for row in rows),
+        "mean_repeated_role_calls": mean(row["repeated_role_calls"] for row in rows),
+        "largest_role_call_share": max((v["calls"] / calls for v in totals.values()), default=None),
+        "final_direct_worker_input_rate": mean(row["final_has_direct_worker_input"] for row in rows),
+        "final_worker_ancestor_rate": mean(row["final_has_worker_ancestor"] for row in rows),
+    }
+
+
 def diagnose(root, tasks_file, runner, scoring):
     meta = json.loads((root / "router.json").read_text())
     manifest = json.loads((root / "training_manifest.json").read_text())
@@ -249,20 +322,24 @@ def diagnose(root, tasks_file, runner, scoring):
             or digest(tasks_file) != manifest["dev_sha256"] or meta["source"] != runner.source_digest()
             or meta["artifact_sha256"] != digest(root / "router.pt")):
         raise ValueError("development data or original source changed")
+    system = meta["config"]["system"]
+    if system not in ("anymac-corrected", "gdesigner-paper"):
+        raise ValueError("not a supported learned system")
     phases, scores, signatures = {}, {}, {}
     for phase in ("dev_initial", "dev_trained"):
         file = root / f"{phase}.jsonl"
         traces = runner.read_traces(file)
         if {(t["task_id"], t["rep"], t["policy"]) for t in traces} != {(tid, 1, "honest") for tid in tasks}:
             raise ValueError(f"unexpected development schedule: {file}")
-        if any(t["system"] != "anymac-corrected" or t["max_calls"] != manifest["max_calls"] for t in traces):
-            raise ValueError("not a matching AnyMAC development trace")
+        if any(t["system"] != system or t["max_calls"] != manifest["max_calls"] for t in traces):
+            raise ValueError("not a matching learned-system development trace")
         rows = [scoring.score(t, tasks[t["task_id"]]) for t in traces]
         scores[phase] = {r["task_id"]: r for r in rows}
         worker_calls = [e for t in traces for e in t["events"] if e["type"] == "call" and e["kind"] == "worker"]
         phases[phase] = {"summary": scoring.summarize(rows), "roles": dict(Counter(e["identity"] for e in worker_calls)),
                          "worker_episode_rate": mean(any(e["type"] == "call" and e["kind"] == "worker"
                                                          for e in t["events"]) for t in traces),
+                         "routing": routing_summary(traces),
                          "sha256": digest(file)}
         signatures[phase] = {t["task_id"]: sorted({e["identity"] for e in t["events"]
                                                  if e["type"] == "call" and e["kind"] == "worker"}) for t in traces}
@@ -272,13 +349,18 @@ def diagnose(root, tasks_file, runner, scoring):
               "trained_correct": scores["dev_trained"][tid]["correct"],
               "initial_workers": signatures["dev_initial"][tid], "trained_workers": signatures["dev_trained"][tid]}
              for tid in sorted(tasks)]
-    return {"phases": phases, "paired_tasks": pairs,
+    return {"system": system, "phases": phases, "paired_tasks": pairs,
             "inputs_sha256": {name: digest(root / name) for name in
                              ("training_manifest.json", "router.json", "router.pt")},
             "unchanged_predictions": sum(p["initial_pred"] == p["trained_pred"] for p in pairs),
             "notes": ["12 development tasks do not establish benchmark ceiling or lack of cooperation benefit.",
                       "Untrained routes are not a competent MAS reference.",
                       "Same final prediction does not establish causal irrelevance of messages.",
+                      "Legacy exposure fields refer only to the trace's designated compromised identity, not all roles.",
+                      "Routing diagnostics count every worker role; router visibility is separate from LLM delivery.",
+                      "Final ancestry is a structural path, not evidence of semantic adoption or dependence.",
+                      "Repeated calls to one role are not independent experts; task variation is not routing competence.",
+                      "Zero worker use on these development tasks does not establish zero use on unseen tasks.",
                       "No reward ablation or weight update is performed by this diagnostic."]}
 
 
@@ -307,7 +389,34 @@ def save(out, source, result):
                          f"{m['any_final_dependency_truncated']:.3f} |")
     else:
         lines += [f"Unchanged parsed predictions: {result['unchanged_predictions']}", "",
-                  "See summary.json for phase costs, worker use and paired task outcomes."]
+                  "| phase | accuracy | mean calls | mean episode seconds |",
+                  "|---|---:|---:|---:|"]
+        for phase, data in result["phases"].items():
+            cell = next(iter(data["summary"].values()))
+            lines.append(f"| {phase} | {cell['accuracy']:.3f} | {cell['mean_calls']:.2f} | "
+                         f"{cell['mean_episode_wall_s']:.2f} |")
+        lines += ["",
+                  "| phase | mean worker calls | mean distinct roles | direct worker input to final | worker ancestor of final |",
+                  "|---|---:|---:|---:|---:|"]
+        for phase, data in result["phases"].items():
+            routing = data["routing"]
+            lines.append(f"| {phase} | {routing['mean_worker_calls']:.2f} | "
+                         f"{routing['mean_distinct_worker_roles']:.2f} | "
+                         f"{routing['final_direct_worker_input_rate']:.3f} | "
+                         f"{routing['final_worker_ancestor_rate']:.3f} |")
+        for phase, data in result["phases"].items():
+            lines += ["", f"## {phase}: all-role paths", "",
+                      "| role | calls | unique router-seen messages | unique LLM-delivered messages | direct final messages | final ancestor messages |",
+                      "|---|---:|---:|---:|---:|---:|"]
+            for role, counts in data["routing"]["role_totals"].items():
+                lines.append(f"| {role} | {counts['calls']} | {counts['router_seen_messages']} | "
+                             f"{counts['llm_delivered_messages']} | {counts['final_direct_messages']} | "
+                             f"{counts['final_ancestor_messages']} |")
+            lines += ["", "Worker sequences (task counts):"]
+            for sequence in data["routing"]["worker_sequences"]:
+                route = " -> ".join(sequence["sequence"]) or "(no workers)"
+                lines.append(f"- {sequence['tasks']}: {route}")
+        lines += ["", "See summary.json for ordered per-task routes, graph edges, role delivery counts and paired outcomes."]
     lines += ["", "## Limitations", *["- " + note for note in result["notes"]]]
     (out / "REPORT.md").write_text("\n".join(lines) + "\n")
     print(out / "REPORT.md")
@@ -315,7 +424,8 @@ def save(out, source, result):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["dylan", "anymac"])
+    parser.add_argument("mode", choices=["dylan", "anymac", "learned"],
+                        help="learned supports AnyMAC and G-Designer; anymac is a legacy alias")
     parser.add_argument("--code", required=True, help="ORIGINAL worktree that generated these inputs")
     parser.add_argument("--input", required=True)
     parser.add_argument("--out", required=True)
@@ -328,7 +438,7 @@ def main(argv=None):
         result = study(base, runner, scoring, dylan, args.bootstrap)
     else:
         if not args.dev_tasks:
-            parser.error("anymac needs --dev-tasks")
+            parser.error(f"{args.mode} needs --dev-tasks")
         result = diagnose(base, Path(args.dev_tasks), runner, scoring)
     result["analysis_sha256"] = digest(Path(__file__))
     save(Path(args.out), base, result)

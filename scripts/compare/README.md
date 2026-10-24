@@ -92,9 +92,29 @@ errors and truncated final dependencies are recorded. The last flag includes
 programmatic-consensus voters, unlike the legacy final-LLM-call truncation metric.
 Agreement after exposure is **not** proof of semantic adoption or causal influence.
 
-The AnyMAC diagnostic reports paired predictions, worker roles/use, quality and
-cost before/after training. It does not train, bypass a gate, or establish why
-workers disappeared. See the
+The learned-system diagnostic (`learned`, with `anymac` retained as an alias)
+supports both AnyMAC profiles and G-Designer. It reports paired predictions,
+quality, costs, ordered per-task worker sequences and G-Designer task-graph edges
+before/after training. Use the generating worktree with `--code` separately for
+each system; G-Designer may have been trained at an older revision.
+
+The `routing` section counts **all** worker roles, regardless of the trace's
+designated compromised identity. Legacy `summary` exposure fields count only
+that designated identity and must not be interpreted as all-worker exposure.
+Per-role counters distinguish unique messages seen by the neural router, unique
+messages delivered to any LLM, message deliveries to other workers/self/
+aggregators, direct inputs to the final answer and transitive worker-message
+ancestors of the final answer. Two router decisions seeing the same message
+count once; multiple deliveries of that message to LLMs can count repeatedly.
+Earlier G-Designer round summaries are not ancestors of the final answer unless
+their messages actually reach it.
+
+Per-task distinct-role and repeated-role counts distinguish repeated calls to
+one identity from multiple identities. The largest role's share uses worker
+calls as denominator and is `null` when there are no worker calls. These are
+structural counts, not independent expertise, semantic adoption or causal
+dependence. No model is loaded and no GPU is needed. The analyzer does not
+train, bypass a gate, or establish why workers disappeared. See the
 [research priority and benchmark diagnostic](../../docs/COMPARATIVE_PROTOCOL.md#praezisierung-nach-den-ersten-lernlaeufen).
 
 ### Immediate honest cooperation diagnostic
