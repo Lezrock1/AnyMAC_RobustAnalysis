@@ -119,6 +119,29 @@ training and its development gate are still outstanding.
 
 ## Read-only analysis of completed runs
 
+### Pilot worker evidence on the two shared history errors
+
+No new GPU job or main200 evaluation is needed. From a new checkout containing
+the analyzer, use the **original** `AnyMAC_pilot_v3` worktree through `--code`:
+
+```bash
+python scripts/diagnostics/pilot_worker_audit.py \
+  --code "$HOME/AnyMAC_pilot_v3" \
+  --input "$HOME/AnyMAC_RobustAnalysis/results/compare/five_condition_gemma12b_v3/pilot" \
+  --out "$HOME/AnyMAC_RobustAnalysis/results/analysis/pilot_v3_history_workers_v1"
+```
+
+Validates all pilot cells using their original runner/suite, then reads only
+honest traces for `mmlu_pro/4745` and `mmlu_pro/4804`. Writes a new `summary.json`
+with message IDs, roles, parsed choices, truncation, direct final inputs and
+transitive message ancestry. No models are loaded and no input files rewritten.
+Unknown/unparsed worker answers are not classified as wrong. For DyLAN worker
+messages, the existing native choice parser is used; other workers use the
+existing strict answer parser. Gold agreement is **official-label agreement**,
+not independent historical verification. A message path is not proof the
+Decider accepted or semantically used that answer. No checkpoint/role selection
+or main-sample changes follow automatically.
+
 `../diagnostics/compare_results.py` analyzes the completed 37-run DyLAN study
 (2400 episodes) without rewriting any run files or starting a model server.
 It lives outside this directory so its addition does not change run/training

@@ -358,6 +358,49 @@ Smoke; kein automatischer Abbruch alter Jobs.
 
 ## 3. Entscheidungsschranken
 
+### Vorarbeit nach dem abgeschlossenen Kleinbudget-Piloten
+
+Pilot 6987782 ist laut Ramses `COMPLETED`, 06:42:13, Exitcode 0.
+Alle 528 Episoden wurden mit dem Originalworktree validiert. Auf zwoelf
+bekannten Dev-Fragen gibt es in keiner gepaarten Angriffsepisode einen Wechsel
+des geparsten Endantwortbuchstabens. Fixed und G-Designer sind dabei tatsaechlich
+substituiert und aggregator-exponiert; fehlende Exposition erklaert deren
+Nullbefund nicht. `delivered_any` umfasst auch Kontrollkonsum und darf nicht
+pauschal als LLM-Zustellung bezeichnet werden.
+
+Alle ehrlichen Systeme/Seeds scheitern in beiden Wiederholungen an denselben
+beiden Geschichtsfragen: 4745 (Gold E, alle B) und 4804 (Gold G, DyLAN F,
+andere E). Auf den anderen zehn Fragen sind alle korrekt. Das belegt
+gemeinsame Fehlermengen auf diesem kleinen Satz, nicht fehlendes Modellwissen
+oder eine allgemeine Qualitaetsgrenze von MMLU-Pro.
+
+Vorlaeufige Quellenpruefung, **keine Neubewertung der Labels**:
+
+- Die [Progressive Party Platform 1912](https://www.presidency.ucsb.edu/documents/progressive-party-platform-1912)
+  fordert im Abschnitt Tariff einerseits Senkung ueberhoehter Zoelle,
+  verteidigt andererseits das Schutzprinzip und kritisiert die demokratische
+  Revenue-only-Position. Das erlaubt keine einfache Gleichsetzung von
+  Progressive Party und Demokraten. Die Quelle entscheidet die konkrete
+  Underwood-Simmons-Multiple-Choice-Frage nicht abschliessend. Weder das
+  offizielle E noch das gemeinsame B wird hier als historisch verifiziert
+  behauptet.
+- Der [Britannica-Eintrag zu Zamindars](https://www.britannica.com/topic/zamindar)
+  beschreibt unterschiedliche regionale Formen von Landbesitz und
+  Steuererhebung, belegt jedoch nicht den konkreten Kausalzusammenhang der
+  Aufgabe mit religioeser Toleranz. Die Zweitfrage bleibt fachlich offen;
+  keine alternative Antwort als gesichert einsetzen.
+
+Die gezielte Workerpruefung liegt ausserhalb des gebundenen Vergleichscodes:
+`scripts/diagnostics/pilot_worker_audit.py`, Aufruf im Vergleichs-README.
+Sie unterscheidet Vorkommen einer offiziell richtigen Workerwahl,
+direkte Zustellung an die finale Entscheidung und transitive Nachrichtenpfade.
+Ungeparste Antworten bleiben unbekannt. Ein fehlender Goldbuchstabe beweist
+kein fehlendes Wissen, ein vorhandener keine korrekte Begruendung.
+Ein abgelegtes Ergebnis benoetigt noch die Ramses-Traces; lokal sind nur
+synthetische Verhaltenstests moeglich. Nutzer hat vor dieser Vorarbeit noch
+keine neuen Trainingsjobs eingereicht. Keine GPU-Jobs oder Hauptaufgaben
+werden durch die Diagnose gestartet.
+
 Die urspruenglichen, weiterhin unveraendert gespeicherten Gates verlangen:
 
 1. mindestens ein endlicher, nichtnull Utility-Gradient und ein tatsaechliches
