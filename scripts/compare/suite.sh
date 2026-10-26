@@ -36,8 +36,7 @@ args=("$command" --phase "$phase" --learned-root "$RESULTS_DIR/compare/learned_g
       --dev-tasks "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json"
       --eval-tasks "$RESULTS_DIR/compare/main_balanced200_v1/eval_tasks.json"
       --train-tasks "$learned/train_tasks.json"
-      --reserved "${reserved[@]}"
-      --out "$output")
+      --reserved "${reserved[@]}")
 regime="${COMPARE_TRAINING_REGIME:-preliminary-v1}"
 case "$regime" in
   preliminary-v1) ;;
@@ -53,10 +52,19 @@ case "$regime" in
           --eval-tasks "$RESULTS_DIR/compare/main_balanced200_v1/eval_tasks.json"
           --train-tasks "$learned/train_tasks.json"
           --anymac-training-tasks "$paper/train_tasks.json"
-          --reserved "${reserved[@]}" --out "$output")
+          --reserved "${reserved[@]}")
     ;;
   *) echo "Unknown COMPARE_TRAINING_REGIME" >&2; exit 2 ;;
 esac
+case "${COMPARE_SUITE_SCOPE:-full}" in
+  full) ;;
+  core)
+    output="${output/five_condition/core_four}"
+    args+=(--scope core)
+    ;;
+  *) echo "Unknown COMPARE_SUITE_SCOPE; use full or core" >&2; exit 2 ;;
+esac
+args+=(--out "$output")
 if ((amended)); then args+=(--allow-routing-degeneracy); fi
 if [[ "$command" != run ]]; then
   python scripts/compare/suite.py "${args[@]}"

@@ -435,6 +435,18 @@ entfernenden Aufgaben. Die Freigabe beruht auf ehrlicher Ausgabequalitaet.
 
 ## 4. Bedingter Hauptlauf
 
+**Aktuelle Umfangsentscheidung:** Im ersten Hauptlauf wird G-Designer aus
+Ressourcengruenden zurueckgestellt; siehe
+[Kernvergleich](./COMPARATIVE_PROTOCOL.md#ressourcenbedingter-kernvergleich-ohne-g-designer-26102026).
+Die folgenden Vollplan-Zahlen bleiben als urspruenglicher Fuenf-Bedingungen-
+Plan erhalten, nicht als aktueller automatischer Startauftrag.
+Der neue `core`-Plan umfasst 28800 Episoden / 136 Laeufe auf denselben
+200 Fragen, nach 384 Pilotepisoden mit allen sechs neuen AnyMAC-Checkpoints.
+G-Designer-Daten werden nicht geloescht oder nachtraeglich umgedeutet.
+Die laufenden v2-Trainings bleiben im gepinnten Worktree unveraendert.
+Den neuen Suitecode nur in einem separaten Evaluationsworktree verwenden;
+nicht damit ein laufendes Training fortsetzen (Quellcodebindung).
+
 Erst nach bestandenem Pilot und drei Trainingsseeds je gelerntem Router:
 
 - 200 frisch reservierte offizielle Testfragen, thematisch ausgewogen (14/15 je

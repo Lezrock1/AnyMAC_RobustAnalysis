@@ -56,8 +56,10 @@ def test_pilot_and_main_schedule(monkeypatch, tmp_path):
         suite.jobs_for(args, {"path": "embed", "sha256": "x"})
 
 
-@pytest.mark.parametrize("n,episodes", [(60, 12240), (200, 40800)])
-def test_main_has_193_runs_and_scales_with_tasks(monkeypatch, tmp_path, n, episodes):
+@pytest.mark.parametrize("scope,runs,n,episodes", [
+    ("full", 193, 60, 12240), ("full", 193, 200, 40800),
+    ("core", 136, 60, 8640), ("core", 136, 200, 28800)])
+def test_main_schedule_counts_and_scales_with_tasks(monkeypatch, tmp_path, scope, runs, n, episodes):
     def full_artifact(*args):
         path, meta = fake_artifact(*args)
         meta["config"]["roles"] = ["Knowledgeable Expert", "Critic", "Mathematician", "Psychologist",
@@ -65,13 +67,80 @@ def test_main_has_193_runs_and_scales_with_tasks(monkeypatch, tmp_path, n, episo
         return path, meta
     monkeypatch.setattr(suite, "artifact", full_artifact)
     args = arguments(tmp_path, "main")
+    args.scope = scope
     eval_tasks = [{"id": f"eval/{i}", "kind": "mc", "text": "Q", "truth": "A", "n_options": 4} for i in range(n)]
     document = json.loads(args.eval_tasks.read_text())
     document["tasks"] = eval_tasks
     args.eval_tasks.write_text(json.dumps(document))
     jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
-    assert len(jobs) == 193
+    assert len(jobs) == runs
     assert sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs) == episodes
+    assert ("gdesigner-paper" in {j["system"] for j in jobs}) == (scope == "full")
+    if scope == "core":
+        counts = {s: sum(j["tasks"] * j["reps"] * len(j["policies"])
+                         for j in jobs if j["system"] == s) for s in ("fixed", "dylan", *suite.LEARNED[:2])}
+        assert counts == {"fixed": 8 * n, "dylan": 16 * n,
+                          "anymac-normal": 60 * n, "anymac-efficient": 60 * n}
+
+
+def test_core_pilot_uses_all_seeds_without_loading_gdesigner(monkeypatch, tmp_path):
+    def fake(*a):
+        assert a[1] != "gdesigner-paper"
+        return fake_artifact(*a)
+    monkeypatch.setattr(suite, "artifact", fake)
+    args = arguments(tmp_path)
+    args.scope = "core"
+    jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+    assert len(jobs) == 8
+    assert {j["seed"] for j in jobs} == {None, 0, 1, 2}
+    assert sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs) == 64
+    # Same 8 cells on the actual 12-question dev sample: 384 episodes.
+    assert sum(12 * j["reps"] * len(j["policies"]) for j in jobs) == 384
+
+
+def test_pilot_scope_requires_exact_condition_set():
+    core = {"scope": "core", "honest_cells": {s: {} for s in ("fixed", "dylan", *suite.LEARNED[:2])}}
+    suite.check_pilot_scope(SimpleNamespace(scope="core"), core)
+    with pytest.raises(ValueError, match="same explicit"):
+        suite.check_pilot_scope(SimpleNamespace(scope="full"), core)
+    with pytest.raises(ValueError, match="same explicit"):
+        suite.check_pilot_scope(SimpleNamespace(scope="core"), {**core, "scope": "full"})
+    core["honest_cells"]["gdesigner-paper"] = {}
+    with pytest.raises(ValueError, match="same explicit"):
+        suite.check_pilot_scope(SimpleNamespace(scope="core"), core)
+
+
+def test_core_main_checks_every_pilot_checkpoint_even_without_amendment(monkeypatch, tmp_path, capsys):
+    monkeypatch.setattr(suite, "artifact", fake_artifact)
+    args = arguments(tmp_path, "main")
+    args.scope = "core"
+    jobs, tasks = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+    monkeypatch.setattr(suite, "jobs_for", lambda *a: (jobs, tasks))
+    assets = tmp_path / "assets.json"
+    assets.write_text(json.dumps({"embedding": {"path": "embed", "sha256": "x"}}))
+    pilot_path = args.out / "pilot/summary.json"
+    pilot_path.parent.mkdir(parents=True)
+    pilot = {
+        "scope": "core", "passed": True, "source": suite.source_digest(),
+        "tasks_sha256": suite.digest(args.dev_tasks),
+        "honest_cells": {s: {"mean_episode_wall_s": 1} for s in ("fixed", "dylan", *suite.LEARNED[:2])},
+        "trace_bytes_per_episode": {s: 100 for s in ("fixed", "dylan", *suite.LEARNED[:2])},
+        "artifacts": {f"{j['system']}/seed{j['seed']}": j["artifact_sha256"]
+                      for j in jobs if j["seed"] is not None}}
+    pilot_path.write_text(json.dumps(pilot))
+    argv = ["plan", "--phase", "main", "--scope", "core", "--learned-root", str(args.learned_root),
+            "--assets", str(assets), "--dev-tasks", str(args.dev_tasks), "--eval-tasks", str(args.eval_tasks),
+            "--train-tasks", str(args.train_tasks), "--reserved", str(args.reserved[0]), "--out", str(args.out)]
+    suite.main(argv)
+    assert json.loads(capsys.readouterr().out)["scope"] == "core"
+    pilot["artifacts"]["anymac-normal/seed1"] = "stale-seed1"
+    pilot_path.write_text(json.dumps(pilot))
+    with pytest.raises(ValueError, match="pilot checkpoint changed"):
+        suite.main(argv)
+    pilot["scope"] = "full"
+    pilot_path.write_text(json.dumps(pilot))
+    with pytest.raises(ValueError, match="same explicit"):
+        suite.main(argv)
 
 
 def test_amended_pilot_uses_every_seed_and_records_admission(monkeypatch, tmp_path):

@@ -28,6 +28,20 @@ BASELINES = {"fixed": FIXED_ROLES,
 LEARNED = ("anymac-normal", "anymac-efficient", "gdesigner-paper")
 
 
+def learned_conditions(args):
+    scope = getattr(args, "scope", "full")
+    if scope not in ("full", "core"):
+        raise ValueError("comparison scope must be full or core")
+    return LEARNED if scope == "full" else LEARNED[:2]
+
+
+def check_pilot_scope(args, pilot):
+    scope = getattr(args, "scope", "full")
+    expected = set(BASELINES) | set(learned_conditions(args))
+    if pilot.get("scope", "full") != scope or set(pilot["honest_cells"]) != expected:
+        raise ValueError("main requires a pilot with the same explicit comparison scope and conditions")
+
+
 def architecture(label):
     return "anymac-corrected" if label in ("anymac-normal", "anymac-efficient") else label
 
@@ -79,7 +93,8 @@ def jobs_for(args, embedding):
         if any(" ".join(t["text"].split()).casefold() in blocked_texts for t in task_list):
             raise ValueError("suite evaluation text overlaps training pool")
     amended = getattr(args, "allow_routing_degeneracy", False)
-    seeds = args.seeds if amended or args.phase == "main" else args.seeds[:1]
+    core = getattr(args, "scope", "full") == "core"
+    seeds = args.seeds if amended or core or args.phase == "main" else args.seeds[:1]
     if not seeds or any(seed < 0 for seed in seeds) or len(set(seeds)) != len(seeds):
         raise ValueError("comparison needs distinct nonnegative training seeds")
     admission_args = {"allow_routing_degeneracy": True} if amended else {}
@@ -89,7 +104,7 @@ def jobs_for(args, embedding):
         (s, None, roles, None) for s, roles in BASELINES.items()]
     artifact_hashes = {}
     paired_initial = {}
-    for system in LEARNED:
+    for system in learned_conditions(args):
         root = args.learned_root
         if system == "gdesigner-paper":
             root = getattr(args, "gdesigner_root", None) or root
@@ -300,7 +315,8 @@ def report(args, jobs, tasks):
     cells = summarize(honest)
     honest_cells = {s: cells[f"{s}/honest"] for s in sorted({r["system"] for r in rows})}
     passed = all(output_quality([r for r in honest if r["system"] == s])["passed"] for s in honest_cells)
-    result = {"phase": args.phase, "passed": passed, "honest_cells": honest_cells,
+    result = {"phase": args.phase, "scope": getattr(args, "scope", "full"),
+              "passed": passed, "honest_cells": honest_cells,
               "all_cells": summarize(rows), "effects": contrasts(rows),
               "interpretation": "Task CIs conditional on these training seeds. Not a population-of-seeds CI.",
               "artifacts": {f"{j['system']}/seed{j['seed']}": j["artifact_sha256"] for j in jobs if j["seed"] is not None},
@@ -320,7 +336,8 @@ def report(args, jobs, tasks):
         s: sum((job_out(j) / "traces.jsonl").stat().st_size for j in jobs if j["system"] == s) /
            sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs if j["system"] == s)
         for s in honest_cells}
-    if args.phase == "main" or getattr(args, "allow_routing_degeneracy", False):
+    if (args.phase == "main" or getattr(args, "allow_routing_degeneracy", False)
+            or getattr(args, "scope", "full") == "core"):
         result["effects_by_seed"] = {str(seed): contrasts([r for r in rows if r["seed"] in (None, seed)])
                                      for seed in args.seeds}
     write_json(Path(args.out) / args.phase / "summary.json", result)
@@ -332,6 +349,8 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("command", choices=["run", "report", "plan"])
     ap.add_argument("--phase", choices=["pilot", "main"], default="pilot")
+    ap.add_argument("--scope", choices=["full", "core"], default="full",
+                    help="core explicitly defers G-Designer; requires its own matching pilot and output")
     ap.add_argument("--learned-root", required=True)
     ap.add_argument("--assets", help="Shared frozen assets.json (separate from new profile output root)")
     ap.add_argument("--gdesigner-root", help="Existing G-Designer output root; do not copy or alter live artifacts")
@@ -352,14 +371,15 @@ def main(argv=None):
     args = ap.parse_args(argv)
     embedding = json.loads(Path(args.assets or Path(args.learned_root) / "assets.json").read_text())["embedding"]
     jobs, tasks = jobs_for(args, embedding)
-    plan = {"phase": args.phase, "source": source_digest(), "tasks_sha256": digest(
+    plan = {"phase": args.phase, "scope": args.scope, "source": source_digest(), "tasks_sha256": digest(
         args.dev_tasks if args.phase == "pilot" else args.eval_tasks), "jobs": jobs}
     plan["episodes"] = sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs)
     if args.phase == "main":
         pilot = json.loads((Path(args.out) / "pilot/summary.json").read_text())
+        check_pilot_scope(args, pilot)
         if (not pilot["passed"] or pilot["source"] != source_digest()
                 or pilot["tasks_sha256"] != digest(args.dev_tasks)):
-            raise ValueError("a complete, current, passed five-condition pilot is required")
+            raise ValueError("a complete, current, passed comparison pilot is required")
         for system, seed in {(j["system"], j["seed"]) for j in jobs if j["seed"] is not None}:
             current = next(j["artifact_sha256"] for j in jobs if j["system"] == system and j["seed"] == seed)
             if (getattr(args, "allow_routing_degeneracy", False)
@@ -367,7 +387,8 @@ def main(argv=None):
                         j["evaluation_admission"] for j in jobs if j["system"] == system and j["seed"] == seed)):
                 raise ValueError("main needs the same amended admission for every pilot checkpoint")
             pilot_hash = pilot["artifacts"].get(f"{system}/seed{seed}")
-            if ((getattr(args, "allow_routing_degeneracy", False) or seed == args.seeds[0])
+            if ((getattr(args, "allow_routing_degeneracy", False) or args.scope == "core"
+                 or seed == args.seeds[0])
                     and pilot_hash != current):
                 raise ValueError("pilot checkpoint changed; rerun the development pilot in a new output")
         plan["estimate"] = estimate(jobs, pilot)

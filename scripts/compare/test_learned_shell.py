@@ -189,3 +189,22 @@ def test_paper_suite_keeps_sealed_main_and_original_gdesigner_root(driver, versi
     assert args[args.index("--out") + 1].endswith(f"five_condition_gemma12b_paper_{version}_routing")
     assert args[args.index("--train-tasks") + 1].endswith("learned_gemma12b_v1/train_tasks.json")
     assert args[args.index("--anymac-training-tasks") + 1].endswith(f"learned_gemma12b_paper_{version}/train_tasks.json")
+
+
+def test_core_scope_has_new_output_and_unchanged_training_root(driver):
+    r, calls, events = driver("suite.sh", "plan", "pilot",
+                             COMPARE_TRAINING_REGIME="paper-aligned-v2",
+                             COMPARE_ROUTING_ADMISSION="routing-observation-20261026",
+                             COMPARE_SUITE_SCOPE="core")
+    assert r.returncode == 0, r.stderr
+    assert not events
+    args = calls[0]
+    assert args[args.index("--scope") + 1] == "core"
+    assert args[args.index("--out") + 1].endswith("core_four_gemma12b_paper_v2_routing")
+    assert args[args.index("--learned-root") + 1].endswith("learned_gemma12b_paper_v2")
+
+
+def test_unknown_scope_fails_before_server_start(driver):
+    r, calls, events = driver("suite.sh", "pilot", COMPARE_SUITE_SCOPE="invented")
+    assert r.returncode and "Unknown COMPARE_SUITE_SCOPE" in r.stderr
+    assert not calls and not events

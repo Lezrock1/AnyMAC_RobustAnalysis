@@ -31,6 +31,47 @@ Diese Entscheidung erfolgte nach Dev-Einsicht, nicht als unveraenderte
 Vorregistrierung. Das erhoehte Budget garantiert weder Konvergenz noch
 Worker-Nutzung oder Angriffsanfaelligkeit.
 
+### Ressourcenbedingter Kernvergleich ohne G-Designer (26.10.2026)
+
+Nach Einsicht in den abgeschlossenen Kleinbudget-Piloten und vor Auswertung
+der 200 Hauptfragen hat der Nutzer ausdruecklich beschlossen, G-Designer
+im **ersten Hauptlauf zurueckzustellen**. Begruendung ist der Ressourcenbedarf
+(30 Aufrufe, rund 197 Sekunden je ehrlicher Pilotepisode) und die begrenzte
+Kapazitaet von zwei A30, nicht der beobachtete Null-Angriffseffekt.
+Es handelt sich um eine nachtraeglich dokumentierte Umfangsaenderung, keine
+unveraenderte Vorregistrierung.
+
+`COMPARE_SUITE_SCOPE=core` umfasst vier Bedingungen: AnyMAC normal, AnyMAC
+efficient, DyLAN (Paper-Auswahl) und feste Referenz. Beide AnyMAC-Profile
+behalten alle drei festgelegten Trainingsseeds, alle neun Workerrollen,
+beide Angriffsformen und die ehrlichen Wiederholungen. Hauptsample,
+Angriffstexterzeugung und Metriken bleiben unveraendert.
+
+| Umfang | Vollstaendig | Kernvergleich |
+|---|---:|---:|
+| Pilot mit allen Seeds, 12 Dev-Fragen | 528 Episoden / 11 Zellen | 384 Episoden / 8 Zellen |
+| Hauptlauf, 200 Fragen | 40800 Episoden / 193 Laeufe | 28800 Episoden / 136 Laeufe |
+
+Der kleinere Pilot benoetigt nur die sechs neuen AnyMAC-Checkpoints und die
+Baselines; kein Zugriff auf G-Designer-Artefakte. Der Hauptlauf verlangt
+einen aktuellen Pilot mit genau passendem Scope und Bedingungssatz sowie
+denselben sechs Checkpointhashes und Zulassungen. Drei Trainingsseeds bleiben
+obligatorisch. Getrennte Ausgabe `core_four_gemma12b_paper_v2_routing`
+bei v2 und expliziter Routingzulassung; `full` bleibt Softwarestandard.
+GPU-Stundenfreigabe bleibt verpflichtend, aus dem neuen Kernpiloten berechnet.
+
+Aus alten ehrlichen Pilotmittelwerten ergibt sich fuer den Kernvergleich
+grob 207 GPU-Stunden statt 864, also rund 76 % weniger, trotz nur rund
+29 % weniger Episoden. Das ist **keine** Freigabekalkulation: neue
+AnyMAC-Trainings haben einen anderen Horizont und moeglicherweise andere
+Routen. Die neue Pilotmessung ersetzt diese grobe Hochrechnung.
+
+Vorhandene G-Designer-Trainings, Gates und Pilotresultate bleiben vollstaendig
+erhalten und werden als vorlaeufige Ergebnisse berichtet. Keine Aussage ueber
+seine 200-Fragen-Hauptlaufrobustheit oder Ueberlegenheit anderer Systeme
+gegenueber G-Designer. Eine spaetere Erweiterung benoetigt eine getrennte,
+explizite Entscheidung und passende Freigaben.
+
 Nach Pruefung der gepinnten Daten wurde `paper-aligned-v2` freigegeben:
 nachgestellte `N/A`-Auffuelloptionen entfernen statt ganze Fragen verwerfen.
 Damit stehen vor Reservierungsausschluessen 70 Validation-Fragen mit fuenf

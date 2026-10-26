@@ -64,6 +64,37 @@ against the larger validation pool, without rewriting its file. The old pilot
 cannot admit the new checkpoints; main still requires a new completed pilot and
 explicit GPU-hour approval. No cluster training, pilot or main is auto-submitted.
 
+### Current first-main scope: core comparison, G-Designer deferred
+
+The user explicitly deferred G-Designer for resource reasons after inspecting
+the old pilot but before main200 evaluation. Use **a separate evaluation
+worktree containing this suite change**; keep ongoing training in its original
+pinned v2 worktree. No training resume/migration from this newer source.
+
+```bash
+COMPARE_SUITE_SCOPE=core \
+COMPARE_TRAINING_REGIME=paper-aligned-v2 \
+COMPARE_ROUTING_ADMISSION=routing-observation-20261026 \
+  bash scripts/compare/suite.sh plan pilot
+```
+
+After all six AnyMAC checkpoints exist and have admissible gates, this plans
+eight cells / 384 episodes on the twelve development tasks: Fixed, DyLAN and
+three seeds each for AnyMAC normal/efficient. No G-Designer checkpoint is
+loaded. A missing checkpoint may be projected in `plan` using seed 0; such a
+projection cannot run or qualify for main. `pilot` runs the actual schedule
+inside the usual two-A30 allocation with the same three environment variables.
+The main schedule is 136 runs / **28800 episodes** on the unchanged 200 questions.
+Three training seeds, all worker roles and both attack forms remain included.
+
+Output is `core_four_gemma12b_paper_v2_routing`, separate from full-suite outputs.
+Plans/reports record `scope`; main requires the same scope, exact condition set,
+all six same checkpoint hashes, matching admissions and explicit GPU-hour budget
+covering the new pilot projection plus margin. `COMPARE_SUITE_SCOPE=full` (the
+default) retains the complete schedule; unknown scopes fail before server start.
+Keep G-Designer training/pilot results and report its deferral explicitly;
+do not claim the first main study compares all five conditions.
+
 Shared by every compared system: AnyMAC, DyLAN, G-Designer (fallback MasRouter) and the fixed
 reference. Adapters only drive an `Episode`; they never write traces, scores or attack text themselves.
 Implements the E1 adapter obligations of [COMPARATIVE_PROTOCOL.md](../../docs/COMPARATIVE_PROTOCOL.md).
