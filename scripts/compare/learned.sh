@@ -22,6 +22,11 @@ source scripts/ramses/lib.sh
 load_env
 load_modules
 activate_venv
+regime="${COMPARE_TRAINING_REGIME:-preliminary-v1}"
+case "$regime" in
+  preliminary-v1|paper-aligned-v1) ;;
+  *) echo "Unknown COMPARE_TRAINING_REGIME" >&2; exit 2 ;;
+esac
 base="$RESULTS_DIR/compare/learned_gemma12b_v1"
 train="$base/train_tasks.json"
 dev="$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json"
@@ -29,6 +34,14 @@ eval_tasks="$RESULTS_DIR/compare/dylan_study_v1/eval_tasks.json"
 assets="$base/assets.json"
 output_base="$RESULTS_DIR/compare/learned_gemma12b_profiles_v2"
 [[ "$system" != gdesigner-paper ]] || output_base="$base"
+paper="$RESULTS_DIR/compare/learned_gemma12b_paper_v1"
+if [[ "$regime" == paper-aligned-v1 ]]; then
+  [[ "$system" != gdesigner-paper ]] || {
+    echo "G-Designer already uses the paper's 40x10; retain its original checkpoints." >&2; exit 2; }
+  [[ "$profile" != historical-095 ]] || { echo "Paper regime requires normal or efficient" >&2; exit 2; }
+  train="$paper/train_tasks.json"
+  output_base="$paper"
+fi
 label="$system"
 [[ -z "$profile" ]] || label="anymac-$profile"
 bank="${COMPARE_TRAINING_BANK:-}"
@@ -39,14 +52,26 @@ if [[ -n "$bank" || -n "$condition" ]]; then
     *) echo "Explicit COMPARE_TRAINING_CONDITION required" >&2; exit 1 ;; esac
   [[ "$mode" != smoke ]] || { echo "Use a full frozen training sample for trust conditions, not smoke" >&2; exit 1; }
   output_base="$RESULTS_DIR/compare/trust_gemma12b_v1/$condition"
+  [[ "$regime" != paper-aligned-v1 ]] || output_base="$RESULTS_DIR/compare/trust_gemma12b_paper_v1/$condition"
 fi
 reserved=("$RESULTS_DIR/screen/screen_tasks_v1.json" "$RESULTS_DIR/screen/screen_tasks_r2.json" "$eval_tasks")
+if [[ "$regime" == paper-aligned-v1 ]]; then
+  reserved+=("$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json"
+             "$RESULTS_DIR/compare/main_balanced200_v1/eval_tasks.json")
+  for f in "${reserved[@]}"; do
+    [[ -f "$f" ]] || { echo "Frozen evaluation reservation missing: $f" >&2; exit 1; }
+  done
+fi
 [[ -f "$dev" ]] || { echo "honest preflight tasks missing: $dev" >&2; exit 1; }
 if [[ "$mode" == prepare ]]; then
   # Reserve evaluation BEFORE sampling training. This prepares IDs only, never attack runs.
   [[ -f "$eval_tasks" ]] || bash scripts/compare/study.sh prepare
   if [[ ! -f "$train" ]]; then
-    python scripts/compare/train_learned.py prepare --out "$train" --reserved "${reserved[@]}" "$dev"
+    if [[ "$regime" == paper-aligned-v1 ]]; then
+      python scripts/compare/train_learned.py prepare --out "$train" --all-validation --reserved "${reserved[@]}" "$dev"
+    else
+      python scripts/compare/train_learned.py prepare --out "$train" --reserved "${reserved[@]}" "$dev"
+    fi
   fi
   python scripts/compare/train_learned.py assets --cache "$RAMSES_CACHE_DIR/huggingface/hub" --out "$assets"
   exit 0
@@ -92,11 +117,14 @@ assert any(m["name"]=="gemma4:12b-it-qat" and
 out="$output_base/$label/seed$seed"; purpose=study
 samples=4; lr=0.00001
 [[ "$system" != gdesigner-paper ]] || { samples=10; lr=0.001; }
+[[ "$regime" != paper-aligned-v1 ]] || samples=8
 if [[ "$mode" == smoke ]]; then
   out="$output_base/smoke/$label/seed$seed"
   purpose=runtime-smoke
   mkdir -p "$out"
-  python - "$train" "$dev" "$base" <<'PY'
+  sample_base="$base"
+  [[ "$regime" != paper-aligned-v1 ]] || sample_base="$paper"
+  python - "$train" "$dev" "$sample_base" <<'PY'
 import json,sys
 from pathlib import Path
 for source, label, n in ((sys.argv[1], "smoke_train", 2), (sys.argv[2], "smoke_dev", 1)):
@@ -108,13 +136,18 @@ for source, label, n in ((sys.argv[1], "smoke_train", 2), (sys.argv[2], "smoke_d
     if not path.exists():
         path.write_text(json.dumps(doc, sort_keys=True))
 PY
-  train="$base/smoke_train.json"; dev="$base/smoke_dev.json"; samples=2
+  train="$sample_base/smoke_train.json"; dev="$sample_base/smoke_dev.json"; samples=2
 fi
 common=(--embedding-model "$embedding" --url "$BASE_URL" --threads "$OMP_NUM_THREADS" --max-calls 32)
 mkdir -p "$output_base/logs"
 echo "mode=$mode system=$system profile=$profile seed=$seed job=$SLURM_JOB_ID commit=$(git rev-parse HEAD)"
 if [[ "$mode" != gate ]]; then
   training_args=(--purpose "$purpose")
+  if [[ "$regime" == paper-aligned-v1 ]]; then
+    budget=1000
+    [[ "$mode" != smoke ]] || budget=4
+    training_args+=(--training-regime "$regime" --trajectory-budget "$budget")
+  fi
   [[ -z "$bank" ]] || training_args+=(--training-bank "$bank" --training-condition "$condition")
   [[ -z "$profile" ]] || training_args+=(--anymac-profile "$profile")
   [[ "$system" != anymac-corrected ]] || training_args+=(--backbone "$backbone")

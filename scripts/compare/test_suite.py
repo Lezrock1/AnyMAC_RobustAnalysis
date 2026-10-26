@@ -135,6 +135,48 @@ def test_main_refuses_old_unreserved_sample(monkeypatch, tmp_path):
         suite.jobs_for(args, {"path": "embed", "sha256": "x"})
 
 
+def test_larger_validation_pool_does_not_rewrite_main_reservation(monkeypatch, tmp_path):
+    from train_learned import DATA_REVISION
+    args = arguments(tmp_path, "main")
+    pool = tmp_path / "paper_train.json"
+    pool.write_text(json.dumps({
+        "selection": "all-eligible-validation", "source": {"split": "validation", "revision": DATA_REVISION},
+        "tasks": [{"id": "mmlu_pro/validation/1", "text": "New training question"}]}))
+    args.anymac_training_tasks = pool
+    def fake(root, system, seed, embedding):
+        path, meta = fake_artifact(root, system, seed, embedding)
+        meta["training_sha256"] = suite.digest(pool if system.startswith("anymac-") else args.train_tasks)
+        meta["config"]["max_workers"] = 5
+        meta.update(training_regime="paper-aligned-v1", trajectory_budget=1000, completed_trajectories=1000,
+                    samples=8)
+        return path, meta
+    monkeypatch.setattr(suite, "artifact", fake)
+    # Distinct texts: legacy fixtures deliberately used identical question text.
+    doc = json.loads(args.eval_tasks.read_text())
+    for t in doc["tasks"]:
+        t["text"] = "Evaluation " + t["id"]
+    args.eval_tasks.write_text(json.dumps(doc))
+    original = args.eval_tasks.read_bytes()
+    jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+    assert args.eval_tasks.read_bytes() == original
+    assert all(str(pool) in job["argv"] for job in jobs)
+    assert suite.digest(pool) not in doc["excluded_sha256"].values()
+
+    def incomplete(*a):
+        path, meta = fake(*a)
+        meta["completed_trajectories"] = 160
+        return path, meta
+    monkeypatch.setattr(suite, "artifact", incomplete)
+    with pytest.raises(ValueError, match="budget/config"):
+        suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+    monkeypatch.setattr(suite, "artifact", fake)
+    pool_doc = json.loads(pool.read_text())
+    pool_doc["tasks"][0]["text"] = "  EVALUATION  eval/0  "
+    pool.write_text(json.dumps(pool_doc))
+    with pytest.raises(ValueError, match="text overlaps"):
+        suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+
+
 def test_anymac_profiles_require_paired_initial_weights(monkeypatch, tmp_path):
     def mismatched(root, system, seed, embedding):
         path, meta = fake_artifact(root, system, seed, embedding)

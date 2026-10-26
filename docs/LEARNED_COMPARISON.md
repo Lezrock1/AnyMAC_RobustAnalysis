@@ -8,8 +8,11 @@ die urspruenglichen Gates; Efficient fuer keinen Seed; G-Designer nur fuer Seed 
 Alle Fehlschlaege betreffen ausschliesslich `nontrivial_cooperation`; alle neun
 erreichen 10/12 korrekte Dev-Antworten. Die ausdrueckliche
 [Zulassungsaenderung](./COMPARATIVE_PROTOCOL.md#zulassungsaenderung-nach-dev-auswertung-26102026)
-trennt solche Routingbefunde von technischer/qualitativer Freigabe. CPU-Probe,
-Angriffspilot und Hauptlauf sind noch nicht auf Ramses validiert.
+trennt solche Routingbefunde von technischer/qualitativer Freigabe. Die CPU-Probes
+reproduzieren alle aufgezeichneten Dev-Graphen. Der Angriffspilot ist als Job
+6987782 gestartet; ein Abschlussbericht liegt noch nicht vor. Der Hauptlauf
+ist nicht gestartet. Die bisherigen AnyMAC-Trainings sind vorlaeufige
+Kleinbudgetbedingungen, kein belegter ausreichender Trainingsumfang.
 Trainingsinterventionen sind lokal getestet, noch nicht auf Ramses empirisch
 validiert. Lokale Tests ersetzen diese Validierung nicht.
 
@@ -169,6 +172,9 @@ Abschirmung des Summarizers. Drei Runden ergeben **30 LLM-Aufrufe**.
 
 ## 2. Daten, Training und Artefakte
 
+Die folgenden 40-Fragen-Parameter beschreiben die **vorlaeufige Bedingung**
+`preliminary-v1`. Fuer das neue AnyMAC-Referenztraining gilt Abschnitt 2a.
+
 - Gemma4 12B mit dem gescreenten Digest, Ollama 0.40.6, Temperatur 0,
   Outputlimit 8192, Kontext 32768. Workergewichte bleiben unveraendert.
 - 40 Trainingsaufgaben aus dem offiziellen **Validation-Split** von MMLU-Pro
@@ -216,6 +222,92 @@ entfernt. Beim atomaren Schreiben existieren zeitweise Alt- und Neufassung.
 GPT-2 plus Adam-Zustaende benoetigen dennoch mehrere GB; persoenliche Quota vorher
 pruefen. Smoke-Checkpoints sind technisch von Studienartefakten getrennt und
 koennen kein Hauptstudien-Gate bestehen.
+
+## 2a. Papernahes AnyMAC-Training nach Budgetpruefung
+
+Explizite Nutzerentscheidung nach den ersten Trainings und vor dem Hauptlauf:
+**Validation-only**, kein Auffuellen mit Testfragen. Das
+[AnyMAC-Paper, Abschnitt 5.1](https://arxiv.org/html/2506.17784v2) nennt
+80 unterschiedliche Fragen und 1000 Trajektorien **pro Datensatz**, nicht
+einen separaten Router pro MMLU-Themenbereich. Die gebundene
+[MMLU-Pro-Datenrevision](https://huggingface.co/datasets/TIGER-Lab/MMLU-Pro/blob/b189ec765aa7ed75c8acfea42df31fdae71f97be/README.md)
+hat jedoch insgesamt nur 70 Validation-Fragen. Die bisherigen 40 x 4 =
+160 AnyMAC-Trajektorien waren nur 16 % des Paperbudgets.
+
+Neue, separat gespeicherte Bedingung `paper-aligned-v1`:
+
+| Parameter | AnyMAC normal und efficient | G-Designer |
+|---|---|---|
+| Unterschiedliche Fragen | alle geeigneten Validation-Fragen, hoechstens 70 statt Paper-80 | vorhandene 40 |
+| Trainingsbudget je Seed | genau 1000 Trajektorien | vorhandene 40 x 10 = 400 Graphsamples |
+| Samples je Update | 8 unabhaengige Trajektorien | 10 Graphsamples |
+| Aufrufhorizont | hoechstens 5 Worker, danach Decider | unveraendert 3 Runden, 30 LLM-Aufrufe |
+| Lernrate | unveraendert `1e-5` | unveraendert `1e-3` |
+| Seeds | 0, 1, 2 je Profil | alle drei vorhandenen Seeds beibehalten |
+
+Jede AnyMAC-Passage mischt die Aufgaben reproduzierbar mit dem Trainingsseed.
+Alle Aufgaben kommen einmal vor, bevor eine weitere Passage beginnt.
+1000 / 8 ergeben 125 Updateslots, nicht zwingend 125 nichtnull Gradienten.
+Normal/Efficient haben pro Seed denselben Aufgabenplan und dieselben initialen
+Gewichte. Die Profile gamma/lambda/Kontextfenster bleiben wie oben.
+Die Vorbereitung protokolliert Themenhaeufigkeiten und stoppt, falls Ausschluesse
+einen ganzen verfuegbaren Themenbereich entfernen. Sie prueft IDs und normalisierte
+Texte gegen Screening, Dev, DyLAN-Evaluation und beide reservierten Hauptsamples.
+Es gibt keinen Testset-Fallback und keine separaten Modelle pro Themenbereich.
+
+**Bewusste verbleibende Trainingsabweichungen:** Das AnyMAC-Paper verwendet
+adaptives Sampling bis zu einer bzw. vier korrekten Trajektorien. Hier bleiben
+feste unabhaengige Achtergruppen und die Leave-one-out-Baseline erhalten.
+Erfolgsabhaengiges Stoppen wuerde deren Unabhaengigkeitsargument veraendern;
+Einzelgruppen koennten zudem kein Leave-one-out bilden. Die im lokalen
+Originalcode vorgesehenen zehn Wiederverwendungen gespeicherter Trajektorien
+werden nicht unbesehen als neue On-Policy-Samples behandelt: keine solche
+Off-Policy-Wiederverwendung in dieser Implementierung.
+Dies ist eine deutlich budgetnaehere Reimplementierung, **keine exakte
+Paperreproduktion**. MMLU-Pro statt MMLU, Gemma statt GPT-4, Decoding und
+gemeinsame Rollen/Prompts bleiben dokumentierte Abweichungen.
+
+Beim [G-Designer-Paper, Abschnitt 5.1.3](https://arxiv.org/html/2410.11782v2)
+sind die expliziten Werte 40 Trainingsfragen, zehn Graphsamples und drei Runden
+bereits umgesetzt. Daraus folgt keine Begruendung, auch dort 80 Fragen oder
+1000 Samples zu erzwingen. Die vorhandenen drei sauberen G-Designer-Checkpoints
+bleiben unter ihren urspruenglichen Manifesten erhalten, einschliesslich aller
+Routing-Gatebefunde. Ihre sonstigen Rekonstruktionsgrenzen bleiben bestehen.
+Die gemeinsame Runtime wird fuer diese Trainingsaenderung nicht modifiziert.
+
+### Lernverlauf, Speicherung und neue Evaluation
+
+- Dev-Diagnosen bei 200/400/600/800/1000 Trajektorien, mit gleichen
+  Evaluationsseeds; Ausgabe `learning_curve.json` und separate Dev-Traces.
+  Der untrainierte Vergleich und die regulaere finale Dev-Freigabe bleiben.
+  Kein Best-Dev-Checkpoint, kein Early Stopping anhand von Angriffserfolgen.
+  Zwoelf bekannte Dev-Fragen belegen auch mit Lernkurve keine Konvergenz.
+- Nur ein rollierendes Gewichts-/Optimiererartefakt; keine fuenf grossen
+  Zwischenmodelle. Resume bindet Budget, Plan, Daten, Worker und Quellcode;
+  abgebrochene Gruppen werden vollstaendig wiederholt. Das **logische**
+  Trainingsbudget ist exakt 1000; physisch ausgefuehrte Versuche koennen bei
+  einem Abbruch mitten in einer noch nicht gespeicherten Gruppe hoeher liegen.
+- Neue saubere Ausgaben unter `learned_gemma12b_paper_v1`, Smoke getrennt darunter.
+  Trust-Bedingungen erhalten `trust_gemma12b_paper_v1` und benoetigen eine neue
+  zur groesseren Trainingsmenge passende Bank. Alte Banken/Checkpoints werden
+  nicht stillschweigend uebernommen oder konvertiert.
+- Die neue Suite bindet fuer AnyMAC den neuen Pool und genau 1000 abgeschlossene
+  Trajektorien. G-Designer bindet weiterhin seinen urspruenglichen 40-Fragen-Pool.
+  Ausgabe `five_condition_gemma12b_paper_v1` bzw. mit ausdruecklicher
+  Routingzulassung Suffix `_routing`. Der alte Pilot bleibt unveraendert;
+  fuer die neuen AnyMAC-Checkpoints ist ein neuer Pilot erforderlich.
+- Die 200 reservierten Testfragen werden **nicht neu geschrieben oder gezogen**.
+  Ihre urspruengliche Hashbindung an den alten Trainingspool bleibt erhalten.
+  Der spaeter beschlossene groessere Validation-Pool wird zusaetzlich anhand
+  von IDs und normalisierten Fragetexten auf Disjunktheit geprueft. Dies ist
+  eine nachtraegliche Trainingsaenderung, keine urspruengliche Vorregistrierung.
+  Ein neuer erfolgreicher Pilot und eine ausdrueckliche Kostenfreigabe bleiben
+  fuer den Hauptlauf verpflichtend.
+
+Die Cluster-Vorbereitung muss die tatsaechlich verbleibende Fragenzahl und
+Themenverteilung noch bestaetigen. Zuerst Smoke fuer beide Profile, dann Seed 0
+mit Laufzeit-/Lernverlaufsauswertung, erst danach Seeds 1/2. Keine automatische
+Einreichung und kein automatischer Hauptlauf.
 
 ## 3. Entscheidungsschranken
 

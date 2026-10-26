@@ -6,6 +6,7 @@ The worker LLM and embedding model are frozen. No evaluation labels enter traini
 from __future__ import annotations
 
 import argparse
+from collections import Counter
 import copy
 import hashlib
 import json
@@ -40,6 +41,17 @@ def training_sample(rows, reserved, n=40, seed=20261023):
                     kind="mc", benchmark="mmlu_pro")
         if task["id"] not in ids and " ".join(task["text"].split()).casefold() not in texts:
             eligible.append(task)
+    if n is None:
+        if not eligible:
+            raise ValueError("no disjoint validation tasks available; no test-set fallback")
+        if len({t["id"] for t in eligible}) != len(eligible):
+            raise ValueError("duplicate validation task ids")
+        if len({" ".join(t["text"].split()).casefold() for t in eligible}) != len(eligible):
+            raise ValueError("duplicate validation question texts")
+        subjects = {t["subject"] for t in rows}
+        if subjects != {t["subject"] for t in eligible}:
+            raise ValueError("reservation exclusions removed an entire validation subject")
+        n = len(eligible)
     if len(eligible) < n:
         raise ValueError(f"only {len(eligible)} disjoint validation tasks available, need {n}; no test-set fallback")
     return random.Random(seed).sample(eligible, n)
@@ -56,12 +68,17 @@ def prepare(args):
     file = "data/validation-00000-of-00001.parquet"
     source = hf_hub_download("TIGER-Lab/MMLU-Pro", file, revision=DATA_REVISION, repo_type="dataset")
     reserved = [t for path in args.reserved for t in json.loads(Path(path).read_text())["tasks"]]
-    tasks = training_sample(mc_rows("mmlu_pro", pd.read_parquet(source)), reserved)
+    all_validation = getattr(args, "all_validation", False)
+    tasks = training_sample(mc_rows("mmlu_pro", pd.read_parquet(source)), reserved,
+                            n=None if all_validation else 40)
     out.parent.mkdir(parents=True, exist_ok=True)
     write_json(out, {"schema": 1, "tasks": tasks, "sample_seed": 20261023,
                      "source": {"repo": "TIGER-Lab/MMLU-Pro", "revision": DATA_REVISION, "file": file,
                                 "sha256": digest(source), "split": "validation"},
-                     "excluded_from": args.reserved})
+                     "excluded_from": args.reserved,
+                     "excluded_sha256": {str(p): digest(p) for p in args.reserved},
+                     "selection": "all-eligible-validation" if all_validation else "random-40",
+                     "subject_counts": dict(Counter(t["subject"] for t in tasks))})
     print(f"wrote {len(tasks)} disjoint official-validation training tasks to {out}")
 
 
@@ -173,15 +190,43 @@ ANYMAC_PROFILES = {
 }
 
 
-def training_config(config, profile):
+def training_config(config, profile, regime="preliminary-v1"):
     config = json.loads(json.dumps(config))
     if config["system"] == "anymac-corrected":
         if profile not in ANYMAC_PROFILES:
             raise ValueError("AnyMAC training requires an explicit normal/efficient/historical-095 profile")
         config.update(ANYMAC_PROFILES[profile], training_profile=profile)
+        if regime == "paper-aligned-v1":
+            if profile == "historical-095":
+                raise ValueError("paper-aligned training requires normal or efficient")
+            config["max_workers"] = 5
     elif profile is not None:
         raise ValueError("AnyMAC profiles cannot be applied to G-Designer")
     return config
+
+
+def training_jobs(training, samples, epochs, budget=None, seed=0):
+    """A fixed number of independent samples per update; never stop on reward."""
+    if samples < 2 or epochs < 1 or not training:
+        raise ValueError("training requires tasks, >=2 independent samples and >=1 epoch")
+    if budget is None:
+        return [(epoch, task, samples) for epoch in range(epochs) for task in training]
+    if budget < 2 or (samples == 2 and budget % 2):
+        raise ValueError("trajectory budget cannot be partitioned into independent groups of >=2")
+    jobs, remaining, epoch = [], budget, 0
+    rng = random.Random(seed)
+    while remaining:
+        order = rng.sample(training, len(training))
+        for task in order:
+            count = min(samples, remaining)
+            if remaining - count == 1:
+                count -= 1
+            jobs.append((epoch, task, count))
+            remaining -= count
+            if remaining == 0:
+                break
+        epoch += 1
+    return jobs
 
 
 def context_regularizer(policy, replay):
@@ -219,6 +264,23 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
     dev = load_tasks(args.dev_tasks, reserved=[*args.reserved, args.tasks])
     if not training or not dev:
         raise ValueError("training and development sets must be nonempty")
+    regime = getattr(args, "training_regime", "preliminary-v1")
+    budget = getattr(args, "trajectory_budget", None)
+    if regime == "paper-aligned-v1":
+        if args.system != "anymac-corrected":
+            raise ValueError("paper-aligned-v1 budget changes apply only to AnyMAC; keep G-Designer 40x10")
+        if args.purpose == "study" and (budget != 1000 or args.samples != 8):
+            raise ValueError("paper-aligned-v1 study requires exactly 1000 trajectories in groups of 8")
+        document = json.loads(Path(args.tasks).read_text())
+        if (document.get("selection") != "all-eligible-validation"
+                or document.get("source", {}).get("split") != "validation"
+                or document.get("source", {}).get("revision") != DATA_REVISION):
+            raise ValueError("paper-aligned training needs the frozen all-eligible official validation sample")
+        blocked_texts = {" ".join(t["text"].split()).casefold() for p in [*args.reserved, args.dev_tasks]
+                         for t in load_tasks(p)}
+        if any(" ".join(t["text"].split()).casefold() in blocked_texts for t in training):
+            raise ValueError("training text overlaps reserved/development questions")
+    jobs = training_jobs(training, args.samples, args.epochs, budget, args.seed)
     llm = llm or OllamaChat(args.url, args.model, args.limit, args.context, args.threads)
     identity = llm.identity()
     intervention = None
@@ -232,7 +294,7 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
     embedder = embedder or Embedder(args.embedding_model)
     torch.manual_seed(args.seed)
     config = training_config(config or new_config(args.system, backbone=args.backbone),
-                             getattr(args, "anymac_profile", None))
+                             getattr(args, "anymac_profile", None), regime)
     config["seed"] = args.seed
     embeddings = torch.stack([embedder(f"You are {role}.") for role in
                               config["roles"] + ([DECIDER] if args.system == "anymac-corrected" else [])])
@@ -248,7 +310,11 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
                 "training_ids": [t["id"] for t in training], "dev_ids": [t["id"] for t in dev],
                 "worker": worker_identity(identity), "embedding_sha256": embedder.sha256,
                 "backbone_sha256": tree_digest(args.backbone) if args.backbone else None,
-                "seed": args.seed, "samples": args.samples, "epochs": args.epochs, "lr": args.lr,
+                "seed": args.seed, "samples": args.samples,
+                "epochs": args.epochs if budget is None else None, "lr": args.lr,
+                "training_regime": regime, "trajectory_budget": sum(j[2] for j in jobs),
+                "sampling": "fixed-independent-groups/leave-one-out/no-reuse",
+                "task_order": "seeded-shuffle-each-pass" if budget is not None else "fixed",
                 "max_calls": args.max_calls, "source": source_digest(), "runtime_sources": runtime_sources(),
                 "environment": environment()}
     manifest["training_intervention"] = (
@@ -279,7 +345,7 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
         baseline = evaluate(system, llm, dev, out / "dev_initial.jsonl", args.max_calls, args.seed + 100000)
         latest = out / "progress.pt"
         progress = {"next_task": 0, "nonzero_updates": 0, "reward_varying_tasks": 0,
-                    "utility_updates": 0, "updates": []}
+                    "utility_updates": 0, "trajectories": 0, "updates": []}
         if latest.exists():
             saved = torch.load(latest, map_location="cpu", weights_only=True)
             if saved["manifest"] != manifest:
@@ -287,11 +353,26 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
             policy.load_state_dict(saved["policy"])
             optimizer.load_state_dict(saved["optimizer"])
             progress = saved["progress"]
-        jobs = [(epoch, t) for epoch in range(args.epochs) for t in training]
+        def learning_point():
+            count = progress["trajectories"]
+            if regime != "paper-aligned-v1" or not count or count % 200:
+                return
+            rows = evaluate(system, llm, dev, out / f"dev_budget_{count}.jsonl",
+                            args.max_calls, args.seed + 100000)
+            curve_path = out / "learning_curve.json"
+            curve = json.loads(curve_path.read_text()) if curve_path.exists() else {}
+            curve[str(count)] = {
+                "development": summarize(rows), "routing": routing_diagnostics(system, dev, rows),
+                "nonzero_updates": progress["nonzero_updates"],
+                "utility_updates": progress["utility_updates"],
+                "note": "Diagnostic only; final checkpoint fixed at full budget, no best-dev selection."}
+            write_json(curve_path, curve)
+
+        learning_point()
         for index in range(progress["next_task"], len(jobs)):
-            epoch, task = jobs[index]
-            replays, rewards = [], []
-            for sample in range(args.samples):
+            epoch, task, sample_count = jobs[index]
+            replays, rewards, correct_count = [], [], 0
+            for sample in range(sample_count):
                 seed = args.seed * 10000000 + index * args.samples + sample
                 trace, row, replay = run_episode(system, llm, task, sample + 1, True, seed, args.max_calls, intervention)
                 if intervention:
@@ -302,6 +383,7 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
                 # No gold is read by either router. Reward is computed only after finish().
                 length = len(replay["steps"]) - 1 if args.system == "anymac-corrected" else 0
                 rewards.append(episode_reward(row["correct"], length, config))
+                correct_count += int(row["correct"])
             optimizer.zero_grad(set_to_none=True)
             losses, regularizers = [], []
             for j, replay in enumerate(replays):
@@ -330,19 +412,25 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
                 progress["utility_updates"] += int(utility_norm > 0)
             progress["reward_varying_tasks"] += int(len(set(rewards)) > 1)
             progress["next_task"] = index + 1
+            progress["trajectories"] += len(replays)
             progress["updates"].append({"epoch": epoch, "task_id": task["id"], "rewards": rewards,
+                                        "correct_count": correct_count, "attempts": len(replays),
+                                        "trajectories": progress["trajectories"],
                                         "grad_norm": float(norm), "utility_grad_norm": utility_norm,
                                         "loss": sum(losses)})
             atomic_save(latest, {"manifest": manifest, "policy": policy.state_dict(),
                                  "optimizer": optimizer.state_dict(), "progress": progress})
             write_json(out / "progress.json", progress)
+            learning_point()
             print(f"{args.system} seed={args.seed} {index + 1}/{len(jobs)} "
+                  f"trajectories={progress['trajectories']}/{manifest['trajectory_budget']} "
                   f"reward={sum(rewards)/len(rewards):.3f} grad={float(norm):.4g}", flush=True)
         atomic_save(final, policy.state_dict())
         metadata = {**manifest, "initial_policy_sha256": initial_hash.hexdigest(),
                     "artifact_sha256": digest(final), "nonzero_updates": progress["nonzero_updates"],
                     "reward_varying_tasks": progress["reward_varying_tasks"],
                     "utility_updates": progress["utility_updates"],
+                    "completed_trajectories": progress["trajectories"],
                     "untrained_development": summarize(baseline)}
         write_json(final.with_suffix(".json"), metadata)
         # Keep only the small progress log and frozen final weights after successful training.
@@ -388,6 +476,8 @@ def main(argv=None):
     pr = sub.add_parser("prepare")
     pr.add_argument("--out", required=True)
     pr.add_argument("--reserved", nargs="+", required=True)
+    pr.add_argument("--all-validation", action="store_true",
+                    help="use all eligible validation questions with subject coverage; never use test")
     ac = sub.add_parser("assets")
     ac.add_argument("--cache", required=True)
     ac.add_argument("--out", required=True)
@@ -402,6 +492,10 @@ def main(argv=None):
     tr.add_argument("--seed", type=int, default=0)
     tr.add_argument("--samples", type=int, default=4)
     tr.add_argument("--epochs", type=int, default=1)
+    tr.add_argument("--trajectory-budget", type=int,
+                    help="exact rollout count, cycling through seeded shuffled training passes")
+    tr.add_argument("--training-regime", choices=("preliminary-v1", "paper-aligned-v1"),
+                    default="preliminary-v1")
     tr.add_argument("--lr", type=float, default=1e-5)
     tr.add_argument("--anymac-profile", choices=tuple(ANYMAC_PROFILES),
                     help="Required for AnyMAC; explicit normal or efficient condition")

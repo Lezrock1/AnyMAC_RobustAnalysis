@@ -328,7 +328,55 @@ def test_official_validation_ids_and_text_duplicates_are_excluded():
         training.training_sample(rows, reserved, n=5)
 
 
-def test_prepare_uses_validation_not_test_file(tmp_path, monkeypatch):
+def test_all_validation_is_shuffled_disjoint_and_covers_subjects():
+    rows = [dict(TASK, id=f"mmlu_pro/{i}", text=f"Question {i}", subject=f"topic{i % 14}")
+            for i in range(70)]
+    reserved = [dict(rows[0], id="test/0", text=" QUESTION  0 ")]
+    sample = training.training_sample(rows, reserved, n=None)
+    assert len(sample) == 69
+    assert len({t["subject"] for t in sample}) == 14
+    assert all(t["id"].startswith("mmlu_pro/validation/") for t in sample)
+    assert sample == training.training_sample(rows, reserved, n=None)
+    assert [t["id"] for t in sample] != sorted(t["id"] for t in sample)
+    with pytest.raises(ValueError, match="entire validation subject"):
+        training.training_sample(rows[:14], reserved, n=None)
+    with pytest.raises(ValueError, match="duplicate validation question"):
+        training.training_sample([rows[0], dict(rows[1], text=rows[0]["text"])], [], n=None)
+
+
+@pytest.mark.parametrize("samples,budget", [(8, 1000), (8, 17), (8, 9), (3, 7), (2, 6)])
+def test_exact_budget_and_independent_terminal_groups(samples, budget):
+    tasks = [dict(TASK, id=f"train/{i}") for i in range(70)]
+    jobs = training.training_jobs(tasks, samples, 1, budget=budget, seed=4)
+    assert sum(count for _, _, count in jobs) == budget
+    assert all(2 <= count <= samples for _, _, count in jobs)
+    assert jobs == training.training_jobs(tasks, samples, 1, budget=budget, seed=4)
+    assert jobs != training.training_jobs(tasks, samples, 1, budget=budget, seed=5)
+    first_pass = [task["id"] for epoch, task, _ in jobs if epoch == 0]
+    assert len(set(first_pass)) == len(first_pass)
+    if budget == 1000:
+        assert len(jobs) == 125 and len(first_pass) == 70
+        assert {epoch for epoch, _, _ in jobs} == {0, 1}
+
+
+@pytest.mark.parametrize("samples,budget", [(8, 1), (2, 3), (2, 0)])
+def test_impossible_independent_group_budget_is_rejected(samples, budget):
+    with pytest.raises(ValueError, match="budget"):
+        training.training_jobs([TASK], samples, 1, budget=budget)
+
+
+def test_paper_horizon_does_not_mutate_preliminary_profiles():
+    original = config("anymac-corrected")
+    paper = training.training_config(original, "normal", "paper-aligned-v1")
+    assert paper["max_workers"] == 5
+    assert original["max_workers"] == 2
+    assert training.training_config(original, "normal")["max_workers"] == 2
+    with pytest.raises(ValueError, match="normal or efficient"):
+        training.training_config(original, "historical-095", "paper-aligned-v1")
+
+
+@pytest.mark.parametrize("all_validation", [False, True])
+def test_prepare_uses_validation_not_test_file(tmp_path, monkeypatch, all_validation):
     import pandas as pd
     import huggingface_hub
     parquet = tmp_path / "validation.parquet"
@@ -343,9 +391,12 @@ def test_prepare_uses_validation_not_test_file(tmp_path, monkeypatch):
     reserved = tmp_path / "reserved.json"
     reserved.write_text('{"tasks":[]}')
     out = tmp_path / "train.json"
-    training.prepare(SimpleNamespace(out=str(out), reserved=[str(reserved)]))
+    training.prepare(SimpleNamespace(out=str(out), reserved=[str(reserved)], all_validation=all_validation))
     doc = json.loads(out.read_text())
-    assert len(doc["tasks"]) == 40 and doc["source"]["split"] == "validation"
+    assert len(doc["tasks"]) == (50 if all_validation else 40) and doc["source"]["split"] == "validation"
+    assert doc["selection"] == ("all-eligible-validation" if all_validation else "random-40")
+    assert doc["subject_counts"] == {"subject": len(doc["tasks"])}
+    assert doc["excluded_sha256"] == {str(reserved): learned.digest(reserved)}
     assert requests[0][1] == "data/validation-00000-of-00001.parquet"
     assert requests[0][2]["revision"] == training.DATA_REVISION
     with pytest.raises(ValueError, match="frozen"):
@@ -370,7 +421,8 @@ def test_embedding_hash_works_under_home_cache_and_ignores_download_metadata(tmp
     assert learned.tree_digest(path) != before
 
 
-def test_interrupted_training_resumes_only_remaining_task(tmp_path, monkeypatch):
+@pytest.mark.parametrize("budget", [None, 17])
+def test_interrupted_training_resumes_only_remaining_task(tmp_path, monkeypatch, budget):
     system = system_for("anymac-corrected")
     train_file, dev_file, reserved = (tmp_path / p for p in ("train.json", "dev.json", "reserved.json"))
     train_file.write_text(json.dumps({"tasks": [dict(TASK, id="train/1"), dict(TASK, id="train/2")]}))
@@ -382,6 +434,9 @@ def test_interrupted_training_resumes_only_remaining_task(tmp_path, monkeypatch)
                            lr=1e-4, max_calls=32, purpose="study")
     save = training.atomic_save
     args.anymac_profile = "normal"
+    args.trajectory_budget = budget
+    if budget:
+        args.samples = 4
 
     def interrupt(path, data):
         save(path, data)
@@ -395,8 +450,78 @@ def test_interrupted_training_resumes_only_remaining_task(tmp_path, monkeypatch)
     restarted = system_for("anymac-corrected")
     training.train(args, LLM(), restarted.embedder, restarted.settings, restarted.policy)
     progress = json.loads((Path(args.out) / "progress.json").read_text())
-    assert [r["task_id"] for r in progress["updates"]] == ["train/1", "train/2"]
+    tasks = runner.load_tasks(args.tasks)
+    jobs = training.training_jobs(tasks, args.samples, 1, budget, args.seed)
+    assert [r["task_id"] for r in progress["updates"]] == [t["id"] for _, t, _ in jobs]
+    assert progress["trajectories"] == sum(j[2] for j in jobs)
     assert [p.name for p in Path(args.out).glob("*.pt")] == ["router.pt"]
+    reference = system_for("anymac-corrected")
+    reference_args = copy.copy(args)
+    reference_args.out = str(tmp_path / "uninterrupted")
+    training.train(reference_args, LLM(), reference.embedder, reference.settings, reference.policy)
+    assert all(torch.equal(tensor, reference.policy.state_dict()[name])
+               for name, tensor in restarted.policy.state_dict().items())
+
+
+def test_paper_budget_learning_curve_and_resume_at_milestone(tmp_path, monkeypatch):
+    class Policy(torch.nn.Module):
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.tensor(0.1))
+
+        def objective(self, replay):
+            return self.weight * replay["factor"], torch.tensor(0.)
+
+    train_file, dev_file, reserved = (tmp_path / p for p in ("train.json", "dev.json", "reserved.json"))
+    train_file.write_text(json.dumps({
+        "tasks": [dict(TASK, id="mmlu_pro/validation/1", text="Training only")],
+        "selection": "all-eligible-validation",
+        "source": {"split": "validation", "revision": training.DATA_REVISION}}))
+    dev_file.write_text(json.dumps({"tasks": [dict(TASK, id="dev/1", text="Development only")]}))
+    reserved.write_text('{"tasks":[]}')
+    args = SimpleNamespace(system="anymac-corrected", samples=8, epochs=1, seed=0,
+                           tasks=str(train_file), dev_tasks=str(dev_file), reserved=[str(reserved)],
+                           out=str(tmp_path / "out"), backbone=None, embedding_model="fake",
+                           lr=1e-4, max_calls=32, purpose="study", anymac_profile="normal",
+                           training_regime="paper-aligned-v1", trajectory_budget=1000)
+    calls, evaluations = [], []
+    row = score(run(system_for("anymac-corrected")), TASK)
+
+    def episode(system, llm, task, rep, sample, seed, max_calls, intervention):
+        calls.append(seed)
+        return {}, {"correct": bool(seed % 2)}, {"steps": [{}], "factor": float(seed % 2)}
+
+    def evaluate(system, llm, tasks, path, max_calls, seed):
+        evaluations.append(path.name)
+        return [row]
+
+    monkeypatch.setattr(training, "run_episode", episode)
+    monkeypatch.setattr(training, "evaluate", evaluate)
+    monkeypatch.setattr(training, "routing_diagnostics", lambda *args: {"worker_episode_rate": 0})
+    save = training.atomic_save
+
+    def interrupt(path, data):
+        save(path, data)
+        if path.name == "progress.pt" and data["progress"]["trajectories"] == 200:
+            raise RuntimeError("interrupted before milestone evaluation")
+    monkeypatch.setattr(training, "atomic_save", interrupt)
+    with pytest.raises(RuntimeError, match="before milestone"):
+        training.train(args, LLM(), Embeddings(), config(args.system), Policy())
+    assert len(calls) == 200 and "dev_budget_200.jsonl" not in evaluations
+    monkeypatch.setattr(training, "atomic_save", save)
+    artifact = training.train(args, LLM(), Embeddings(), config(args.system), Policy())
+    metadata = json.loads(artifact.with_suffix(".json").read_text())
+    assert len(calls) == len(set(calls)) == 1000
+    assert metadata["completed_trajectories"] == metadata["trajectory_budget"] == 1000
+    assert metadata["config"]["max_workers"] == 5
+    curve = json.loads((Path(args.out) / "learning_curve.json").read_text())
+    assert set(curve) == {"200", "400", "600", "800", "1000"}
+    assert evaluations.count("dev_budget_200.jsonl") == 1
+    assert metadata["epochs"] is None
+    # Changed budget/source cannot silently resume a frozen output.
+    args.trajectory_budget = 1008
+    with pytest.raises(ValueError, match="exactly 1000"):
+        training.train(args, LLM(), Embeddings(), config(args.system), Policy())
 
 
 def test_development_gate_is_written_only_with_bound_checks(tmp_path):

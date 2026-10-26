@@ -1,5 +1,55 @@
 # Common comparison layer (protocol step 1)
 
+## New paper-oriented AnyMAC training
+
+Use a **new pinned worktree**; do not update any running pilot/training worktree.
+The previous 40x4 AnyMAC runs remain the preliminary budget condition. The explicit
+new regime uses all eligible official validation questions (at most 70), exactly
+1000 trajectories in independent groups of eight and at most five worker calls.
+It does not train on the sealed 200 main questions. G-Designer's explicit
+paper counts already match 40 questions x 10 graph samples; retain all three
+existing clean checkpoints rather than applying AnyMAC's budget to that method.
+See [training decisions and remaining deviations](../../docs/LEARNED_COMPARISON.md#2a-papernahes-anymac-training-nach-budgetpruefung).
+
+From the new worktree, with `ANYMAC_REPO` pointing to the shared configured checkout:
+
+```bash
+# Login node: require both already-frozen main reservations; no model episodes.
+COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh prepare
+
+# Dedicated single-A30 allocation, first smoke both profiles (no passed study gate).
+COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh smoke anymac-normal 0
+COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh smoke anymac-efficient 0
+
+# Only after smoke inspection, in a dedicated single-A30 allocation:
+COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh train anymac-normal 0
+COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh train anymac-efficient 0
+```
+
+Inspect subject counts in the new frozen training document, `progress.json`,
+`learning_curve.json`, final metadata and the original gate. A cooperation-only
+gate failure still exits nonzero **after** saving the completed model; it is not a
+training interruption or a reason to replace a seed. For parallel normal/efficient
+training use separate single-GPU allocations/masks, not the same output or GPU.
+The existing pilot occupies its allocated GPUs until completion; do not terminate
+it or oversubscribe them for these commands.
+
+After all three seeds and the usual technical/quality checks, select the new
+roots explicitly for the future pilot/plan:
+
+```bash
+COMPARE_TRAINING_REGIME=paper-aligned-v1 \
+COMPARE_ROUTING_ADMISSION=routing-observation-20261026 \
+  bash scripts/compare/suite.sh plan pilot
+```
+
+This uses new suite outputs and the unchanged G-Designer root. It rejects
+preliminary/incomplete AnyMAC budgets. The sealed main reservation keeps its
+original provenance and receives additional actual ID/text disjointness checks
+against the larger validation pool, without rewriting its file. The old pilot
+cannot admit the new checkpoints; main still requires a new completed pilot and
+explicit GPU-hour approval. No cluster training, pilot or main is auto-submitted.
+
 Shared by every compared system: AnyMAC, DyLAN, G-Designer (fallback MasRouter) and the fixed
 reference. Adapters only drive an `Episode`; they never write traces, scores or attack text themselves.
 Implements the E1 adapter obligations of [COMPARATIVE_PROTOCOL.md](../../docs/COMPARATIVE_PROTOCOL.md).

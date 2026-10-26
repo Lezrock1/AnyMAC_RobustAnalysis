@@ -59,7 +59,21 @@ def artifact(root, system, seed, embedding_hash, allow_routing_degeneracy=False)
 
 def jobs_for(args, embedding):
     tasks = args.dev_tasks if args.phase == "pilot" else args.eval_tasks
-    task_list = load_tasks(tasks, reserved=[*args.reserved, args.train_tasks])
+    training_pool = getattr(args, "anymac_training_tasks", None)
+    training_files = [args.train_tasks] + ([training_pool] if training_pool else [])
+    task_list = load_tasks(tasks, reserved=[*args.reserved, *training_files])
+    if training_pool:
+        from train_learned import DATA_REVISION
+        pool_doc = json.loads(Path(training_pool).read_text())
+        if (pool_doc.get("selection") != "all-eligible-validation"
+                or pool_doc.get("source", {}).get("split") != "validation"
+                or pool_doc.get("source", {}).get("revision") != DATA_REVISION):
+            raise ValueError("paper training pool must be the frozen all-eligible validation sample")
+        # The existing main reservation predates this larger validation pool.
+        # Check actual normalized texts too; never rewrite the sealed test sample.
+        blocked_texts = {" ".join(t["text"].split()).casefold() for p in training_files for t in load_tasks(p)}
+        if any(" ".join(t["text"].split()).casefold() in blocked_texts for t in task_list):
+            raise ValueError("suite evaluation text overlaps training pool")
     amended = getattr(args, "allow_routing_degeneracy", False)
     seeds = args.seeds if amended or args.phase == "main" else args.seeds[:1]
     if not seeds or any(seed < 0 for seed in seeds) or len(set(seeds)) != len(seeds):
@@ -83,6 +97,16 @@ def jobs_for(args, embedding):
             else:
                 checkpoint, meta = artifact(root, system, seed, embedding["sha256"], **admission_args)
                 artifact_hashes[(system, seed)] = meta["artifact_sha256"]
+            if training_pool:
+                expected_file = training_pool if system.startswith("anymac-") else args.train_tasks
+                if meta["training_sha256"] != digest(expected_file):
+                    raise ValueError(f"wrong training sample for paper-oriented suite: {checkpoint}")
+                if system.startswith("anymac-") and (
+                        meta.get("training_regime") != "paper-aligned-v1"
+                        or meta.get("trajectory_budget") != 1000
+                        or meta.get("completed_trajectories") != 1000
+                        or meta.get("samples") != 8 or meta["config"].get("max_workers") != 5):
+                    raise ValueError(f"wrong AnyMAC paper-oriented training budget/config: {checkpoint}")
             if system.startswith("anymac-") and artifact_hashes[(system, seed)] != "NOT_TRAINED_PROJECTION_ONLY":
                 initial = meta["initial_policy_sha256"]
                 if seed in paired_initial and paired_initial[seed] != initial:
@@ -113,7 +137,7 @@ def jobs_for(args, embedding):
                       for role in roles for form in ("bare", "persuasive")]
         for label, policies, form, role, reps in cells:
             argv = ["run", "--system", architecture(system), "--tasks", str(tasks), "--reserved",
-                    *map(str, [*args.reserved, args.train_tasks]),
+                    *map(str, [*args.reserved, *training_files]),
                     "--out", str(Path(args.out) / args.phase / label),
                     "--model", args.model, "--max-calls", "32", "--limit", "8192", "--context", "32768",
                     "--threads", str(args.threads), "--compromised", role, "--policies", *policies,
@@ -310,6 +334,8 @@ def main(argv=None):
     ap.add_argument("--dev-tasks", required=True)
     ap.add_argument("--eval-tasks", required=True)
     ap.add_argument("--train-tasks", required=True)
+    ap.add_argument("--anymac-training-tasks",
+                    help="explicit larger validation-only pool; retain original --train-tasks reservation binding")
     ap.add_argument("--reserved", nargs="+", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--urls", nargs="+")

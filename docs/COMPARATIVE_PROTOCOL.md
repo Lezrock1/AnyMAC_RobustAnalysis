@@ -11,6 +11,26 @@ alle neun sauberen Profiltrainings sind abgeschlossen. Routing-Gatebefunde und
 die ausdrueckliche Zulassungsaenderung vom 26.10.2026 stehen im folgenden Abschnitt.
 Details, Auslegungen und Startschranken: [gelernter Vergleich](./LEARNED_COMPARISON.md).
 
+## Trainingsbudget-Aenderung vor dem Hauptlauf
+
+Nach Einsicht in die Kleinbudgettrainings wurde mit dem Nutzer beschlossen,
+AnyMAC naeher am Paperbudget zu trainieren: 1000 statt 160 Trajektorien pro
+Seed, hoechstens fuenf Workeraufrufe und alle geeigneten Validation-Fragen.
+Die explizite Entscheidung **Validation-only** bedeutet hoechstens 70 statt
+Paper-80 Fragen; keine Ergaenzung aus dem Testsplit. Unabhaengige Achtergruppen
+mit Leave-one-out bleiben eine ausdrueckliche Abweichung vom adaptiven
+Paper-Sampling. G-Designers bereits passende explizite 40x10 bleiben erhalten.
+Details und Grenzen: [papernahes Training](./LEARNED_COMPARISON.md#2a-papernahes-anymac-training-nach-budgetpruefung).
+
+Die bisherigen AnyMAC-Trainings und der gestartete Pilot 6987782 bleiben
+vorlaeufige Budgetbedingungen. Neue AnyMAC-Checkpoints brauchen einen neuen
+Pilot; alte Gates und Ergebnisse werden nicht ueberschrieben. Die bereits
+reservierten 200 Hauptaufgaben bleiben unveraendert, werden nicht trainiert
+und muessen auch gegen den erweiterten Validation-Pool disjunkt sein.
+Diese Entscheidung erfolgte nach Dev-Einsicht, nicht als unveraenderte
+Vorregistrierung. Das erhoehte Budget garantiert weder Konvergenz noch
+Worker-Nutzung oder Angriffsanfaelligkeit.
+
 ## Zulassungsaenderung nach Dev-Auswertung (26.10.2026)
 
 Explizit mit dem Nutzer beschlossen, **nach** Einsicht in die bekannten zwoelf

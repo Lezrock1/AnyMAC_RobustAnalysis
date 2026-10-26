@@ -38,6 +38,22 @@ args=("$command" --phase "$phase" --learned-root "$RESULTS_DIR/compare/learned_g
       --train-tasks "$learned/train_tasks.json"
       --reserved "${reserved[@]}"
       --out "$output")
+case "${COMPARE_TRAINING_REGIME:-preliminary-v1}" in
+  preliminary-v1) ;;
+  paper-aligned-v1)
+    output="$RESULTS_DIR/compare/five_condition_gemma12b_paper_v1"
+    ((amended == 0)) || output="${output}_routing"
+    args=("$command" --phase "$phase"
+          --learned-root "$RESULTS_DIR/compare/learned_gemma12b_paper_v1"
+          --assets "$learned/assets.json" --gdesigner-root "$learned"
+          --dev-tasks "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json"
+          --eval-tasks "$RESULTS_DIR/compare/main_balanced200_v1/eval_tasks.json"
+          --train-tasks "$learned/train_tasks.json"
+          --anymac-training-tasks "$RESULTS_DIR/compare/learned_gemma12b_paper_v1/train_tasks.json"
+          --reserved "${reserved[@]}" --out "$output")
+    ;;
+  *) echo "Unknown COMPARE_TRAINING_REGIME" >&2; exit 2 ;;
+esac
 if ((amended)); then args+=(--allow-routing-degeneracy); fi
 if [[ "$command" != run ]]; then
   python scripts/compare/suite.py "${args[@]}"
