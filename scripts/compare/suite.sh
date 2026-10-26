@@ -4,7 +4,7 @@ cd "$(dirname "$0")/../.."
 mode="${1:-}"; phase="${2:-pilot}"
 case "$mode" in
   pilot|main) phase="$mode"; command=run ;;
-  plan) phase=main; command=plan ;;
+  plan) phase="${2:-main}"; [[ "$phase" == pilot || "$phase" == main ]] || exit 2; command=plan ;;
   report) [[ "$phase" == pilot || "$phase" == main ]] || exit 2; command=report ;;
   *) echo "usage: bash scripts/compare/suite.sh pilot|main|plan|report [pilot|main]" >&2; exit 2 ;;
 esac
@@ -19,6 +19,16 @@ if [[ "$phase" == main ]]; then
   reserved+=("$RESULTS_DIR/compare/dylan_study_v1/eval_tasks.json"
              "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json")
 fi
+output="$RESULTS_DIR/compare/five_condition_gemma12b_v2"
+amended=0
+case "${COMPARE_ROUTING_ADMISSION:-strict}" in
+  strict) ;;
+  routing-observation-20261026)
+    amended=1
+    output="$RESULTS_DIR/compare/five_condition_gemma12b_v3"
+    ;;
+  *) echo "Unknown COMPARE_ROUTING_ADMISSION; use strict or routing-observation-20261026" >&2; exit 2 ;;
+esac
 args=("$command" --phase "$phase" --learned-root "$RESULTS_DIR/compare/learned_gemma12b_profiles_v2"
       --assets "$learned/assets.json"
       --gdesigner-root "$learned"
@@ -26,7 +36,8 @@ args=("$command" --phase "$phase" --learned-root "$RESULTS_DIR/compare/learned_g
       --eval-tasks "$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json"
       --train-tasks "$learned/train_tasks.json"
       --reserved "${reserved[@]}"
-      --out "$RESULTS_DIR/compare/five_condition_gemma12b_v2")
+      --out "$output")
+if ((amended)); then args+=(--allow-routing-degeneracy); fi
 if [[ "$command" != run ]]; then
   python scripts/compare/suite.py "${args[@]}"
   exit 0

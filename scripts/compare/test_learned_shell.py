@@ -125,3 +125,23 @@ def test_ambiguous_anymac_label_refused(driver):
     r, calls, events = driver("learned.sh", "train", "anymac-corrected")
     assert r.returncode and "explicitly" in r.stderr
     assert not calls and not events
+
+
+def test_amended_pilot_plan_needs_no_gpu_and_has_separate_output(driver):
+    r, calls, events = driver("suite.sh", "plan", "pilot", SLURM_JOB_ID="",
+                             CUDA_VISIBLE_DEVICES="",
+                             COMPARE_ROUTING_ADMISSION="routing-observation-20261026")
+    assert r.returncode == 0, r.stderr
+    assert not events and len(calls) == 1
+    args = calls[0]
+    assert args[1] == "plan"
+    assert args[args.index("--phase") + 1] == "pilot"
+    assert "--allow-routing-degeneracy" in args
+    assert args[args.index("--out") + 1].endswith("five_condition_gemma12b_v3")
+
+
+def test_unknown_admission_is_rejected_before_gpu_start(driver):
+    r, calls, events = driver("suite.sh", "pilot", COMPARE_ROUTING_ADMISSION="anything")
+    assert r.returncode == 2
+    assert "Unknown COMPARE_ROUTING_ADMISSION" in r.stderr
+    assert not calls and not events

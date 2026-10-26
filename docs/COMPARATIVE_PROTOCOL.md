@@ -7,9 +7,61 @@ Die [isolierten Folgetests](../scripts/followup/README.md) sind implementiert;
 Feste Referenz und DyLAN sind lokal getestet und bestehen laut uebermitteltem
 Ramses-Preflight die ehrlichen Format-/Fehler-/Trunkierungsschranken. Korrigiertes
 AnyMAC und eine qualifizierte G-Designer-Paperrekonstruktion sind lokal implementiert;
-AnyMAC-Seed 0 ist inzwischen trainiert, besteht aber das Kooperations-Gate nicht;
-G-Designer hat bislang nur den technischen Smoke bestanden.
+alle neun sauberen Profiltrainings sind abgeschlossen. Routing-Gatebefunde und
+die ausdrueckliche Zulassungsaenderung vom 26.10.2026 stehen im folgenden Abschnitt.
 Details, Auslegungen und Startschranken: [gelernter Vergleich](./LEARNED_COMPARISON.md).
+
+## Zulassungsaenderung nach Dev-Auswertung (26.10.2026)
+
+Explizit mit dem Nutzer beschlossen, **nach** Einsicht in die bekannten zwoelf
+Dev-Aufgaben und **vor** Angriffspilot/Hauptresultaten. Keine unveraenderte
+Vorregistrierung behaupten. Alle neun sauberen Trainings (drei Seeds je
+Normal/Efficient/G-Designer) sind laut Ramses-Ausgabe bis 40/40 abgeschlossen.
+Die reservierten 60 Hauptaufgaben wurden dafuer nicht ausgewertet.
+
+Motivation: Efficient verwendet bei allen drei Seeds auf den Dev-Aufgaben keine
+Worker. G-Designer Seeds 1/2 verwenden Worker, haben aber im Zero-Noise-Probe
+Task-Range null. Normales AnyMAC besteht alle drei Gates, mit Worker-Nutzung
+12/12, 12/12 und 2/12. Nur bestandene Seeds auszuwaehlen wuerde den Vergleich
+anhand beobachteter Betriebsweisen selektieren.
+
+Die neue explizite Policy `routing-observation/2026-10-26` laesst ausschliesslich
+den Check `nontrivial_cooperation` als beobachteten Routingbefund zu. Hashbindung,
+Umgebung, Modellidentitaet, Datenaufteilung, Studienzweck, sauberes Training,
+Utility-Signal, Update- und Qualitaetschecks bleiben verpflichtend. Unbekannte,
+fehlende oder andere fehlgeschlagene Checks werden nicht akzeptiert.
+Die urspruenglichen Gates werden weder neu berechnet noch umgeschrieben.
+Jedes neue Laufmanifest speichert Policy, Original-Gatestatus, fehlgeschlagene
+Checks, Routingbefund und Gatehash. Standard ohne explizite Freigabe bleibt strikt.
+
+Vor dem GPU-Piloten: CPU-Diagnose an Originalworktrees prueft outputseitige
+Wahrscheinlichkeitsgrenzen, Zero-Noise- und drei feste Common-Noise-Probes sowie
+Replay der realisierten trainierten Dev-Graphen. Invarianz allein wird nicht
+mit Saettigung oder Implementierungsfehler gleichgesetzt. Bei Replayabweichung
+Stopp und Untersuchung, kein automatisches Retraining.
+
+Der geaenderte Pilot umfasst **alle drei Seeds**, die feste Referenz und DyLAN:
+11 Zellen x 12 bekannte Aufgaben x ehrlich/`bare` x zwei Wiederholungen =
+**528 Episoden**. Zielrolle bleibt unveraendert die erste registrierte Rolle:
+`Knowledgeable Expert` bei Fixed und den gelernten Systemen, `Economist` bei
+DyLAN. Keine nachtraegliche Historian-Auswahl anhand Seed 0. Das ist ein
+technischer/Expositions-/Kostenpilot, kein rollenrepraesentativer Wirksamkeitstest.
+Fehlende Exposition oder Null-Angriffseffekt blockiert ihn nicht; schlechte
+ehrliche Qualitaet eines einzelnen Checkpoints darf nicht durch Pooling verdeckt
+werden. Pro-Seed-Resultate und Original-Gates bleiben sichtbar.
+
+Neue Ergebnisse liegen getrennt unter `five_condition_gemma12b_v3`.
+Der Hauptplan bleibt 193 Laeufe/12.240 Episoden mit allen registrierten Rollen,
+drei Trainingsseeds, frischen Aufgaben und explizitem GPU-Stundenbudget.
+Freigabe erfordert einen vollstaendigen, aktuellen Pilot mit denselben neun
+Checkpoint-Hashes und Zulassungsentscheidungen. Kein automatischer Hauptstart.
+G-Designer bleibt die qualifizierte Rekonstruktion; feste 30 Aufrufe und fehlender
+Cross-Round-Speicher werden nicht nachtraeglich geaendert.
+
+Nicht exponierte Episoden bleiben im unbedingten Systemeffekt enthalten.
+Expositionsbedingte Kennzahlen sind deskriptiv; kein Worker ist kein Nachweis
+erfolgreicher Manipulationserkennung. Die Mechanismusanalyse und getrennte
+Trainingsmanipulation duerfen daraus keinen kausalen Dynamikvorteil ableiten.
 
 ## Ziel und Ressourcen
 
@@ -60,13 +112,14 @@ bei Ausgabeersetzung ist noch kein Trainingseffekt.
 
 Die vollstaendige DyLAN/fixed-Serie umfasst laut Ramses-Bericht 37/37 Laeufe.
 Ihre gepoolte Auswertung ist von der kuenftigen Vier-System-Bestaetigung getrennt.
-G-Designer-Seed 0 laeuft seit 23.10.2026 als Job 6970111 auf Commit `78623cf`.
-Das ist ein Startnachweis, kein bestandenes Training oder Gate.
+G-Designer-Seed 0 wurde auf Commit `78623cf` als Job 6970111 abgeschlossen und
+besteht das urspruengliche Gate; Seeds 1/2 scheitern nur am Routing-Probe.
 Die bereits inspizierten 60 Studienaufgaben sind **keine unberuehrten
 Bestaetigungsdaten** mehr. Vor dem Hauptlauf muss eine neue, disjunkte Stichprobe
 reserviert werden. `prepare_main.py` implementiert dies inzwischen mit ID- und
 normalisiertem Textausschluss; die Suite verweigert alte/ungebundene Samples.
-Die Reservierung selbst ist auf Ramses noch auszufuehren.
+Die neue Reservierung wurde auf Ramses unter `main_reserved_v2` ausgefuehrt;
+deren Aufgaben bleiben bis zur Hauptfreigabe unausgewertet.
 
 AnyMAC-Seed 0 beantwortet alle 12 Dev-Aufgaben nach Training ohne Worker
 (10/12 korrekt), bei identischen finalen Antworten wie vor Training.

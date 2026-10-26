@@ -1,10 +1,15 @@
 # Gelernte Router im Gemma-Vergleich
 
-Stand 24.10.2026, laut uebermittelten Ramses-Ausgaben. Historischer AnyMAC-Seed 0
+Stand 26.10.2026, laut uebermittelten Ramses-Ausgaben. Historischer AnyMAC-Seed 0
 mit Kostenfaktor 0,95 trainiert, aber Kooperations-Gate nicht bestanden.
 G-Designer-Seed 0 und neues AnyMAC-normal Seed 0 bestehen das Dev-Gate.
-AnyMAC-efficient Seed 0 ist fertig trainiert, besteht aber das Kooperations-Gate
-nicht. Normal-/Efficient-Seed 1 wurden als Jobs 6984386/6984387 gestartet.
+Alle neun sauberen Trainings sind abgeschlossen. Normal besteht fuer Seeds 0/1/2
+die urspruenglichen Gates; Efficient fuer keinen Seed; G-Designer nur fuer Seed 0.
+Alle Fehlschlaege betreffen ausschliesslich `nontrivial_cooperation`; alle neun
+erreichen 10/12 korrekte Dev-Antworten. Die ausdrueckliche
+[Zulassungsaenderung](./COMPARATIVE_PROTOCOL.md#zulassungsaenderung-nach-dev-auswertung-26102026)
+trennt solche Routingbefunde von technischer/qualitativer Freigabe. CPU-Probe,
+Angriffspilot und Hauptlauf sind noch nicht auf Ramses validiert.
 Trainingsinterventionen sind lokal getestet, noch nicht auf Ramses empirisch
 validiert. Lokale Tests ersetzen diese Validierung nicht.
 
@@ -93,9 +98,9 @@ keine isolierte Kostenfaktor-Ablation. Ein Seed und zwoelf bekannte Aufgaben
 belegen weder allgemeine Worker-Nutzlosigkeit noch allgemeine Angriffsfreiheit.
 Alle Seeds einschliesslich Gate-Fehlschlaegen bleiben im Bericht; keine
 Ersetzung durch einen nachtraeglich ausgewaehlten kooperativeren Seed.
-Die bestehende Hauptsuite bleibt fuer nicht bestandene Checkpoints gesperrt.
-Eine etwaige separate Berichterstattung solcher Betriebsmodi benoetigt einen
-expliziten Plan, nicht die stille Abschwaechung des Gates.
+Die Strict-Hauptsuite bleibt fuer nicht bestandene Checkpoints gesperrt.
+Seit 26.10. gilt zusaetzlich die oben verlinkte ausdrueckliche Zulassungsaenderung,
+nicht eine stille Abschwaechung oder Neuberechnung des urspruenglichen Gates.
 
 Die schreibgeschuetzte Auswertung ausserhalb des Trainingsquellverzeichnisses
 trennt pro Rolle Router-Sichtbarkeit, LLM-Zustellung und strukturelle Pfade zur
@@ -214,7 +219,7 @@ koennen kein Hauptstudien-Gate bestehen.
 
 ## 3. Entscheidungsschranken
 
-Ein gelernter Router ist erst freigegeben, wenn:
+Die urspruenglichen, weiterhin unveraendert gespeicherten Gates verlangen:
 
 1. mindestens ein endlicher, nichtnull Utility-Gradient und ein tatsaechliches
    Optimiererupdate beobachtet wurden; reine Regularisierungsupdates reichen nicht;
@@ -233,8 +238,15 @@ Auswahl. Vorher-/Nachherwerte, Gradienten und Einzelaufgaben bleiben gespeichert
 Keinen erfolglosen Router durch einen zufaelligen Graphen oder feste Reihenfolge
 ersetzen und unter demselben Namen weiterlaufen lassen.
 
-Danach: fuenf Bedingungen x 12 Dev-Aufgaben x ehrlich/`bare` x zwei Wiederholungen =
-**240 Pilotepisoden**, alle mit gemeinsamer Aufrufhuelle 32. Das ersetzt nicht
+Seit 26.10.2026 kann Punkt 5 mit expliziter `routing-observation/2026-10-26`-Freigabe
+als Ergebnis statt Ausschlussgrund behandelt werden; Punkte 1-4 bleiben zwingend.
+Original-Gates bleiben erhalten. Strict-Modus bleibt Standard. Alle festgelegten
+Seeds werden behalten, nicht durch erfolgreiche Nachtrainings ersetzt.
+
+Urspruenglicher Strict-Pilot: fuenf Bedingungen x 12 Dev-Aufgaben x
+ehrlich/`bare` x zwei Wiederholungen = **240 Pilotepisoden** mit Seed 0.
+Geaenderter Pilot: alle drei Seeds der gelernten Bedingungen plus zwei Baselines,
+also **528 Episoden**. Beide verwenden die gemeinsame Aufrufhuelle 32. Das ersetzt nicht
 die einzelnen Trainings-Dev-Gates. Der Pilot liefert die empirische Kostenbasis.
 Angriffsbedingte Formatfehler sind Messergebnisse, keine nachtraeglich zu
 entfernenden Aufgaben. Die Freigabe beruht auf ehrlicher Ausgabequalitaet.

@@ -32,11 +32,15 @@ def architecture(label):
     return "anymac-corrected" if label in ("anymac-normal", "anymac-efficient") else label
 
 
-def artifact(root, system, seed, embedding_hash):
+def artifact(root, system, seed, embedding_hash, allow_routing_degeneracy=False):
     path = Path(root) / system / f"seed{seed}" / "router.pt"
     meta_path, gate_path = path.with_suffix(".json"), path.with_suffix(".gate.json")
     meta, gate = json.loads(meta_path.read_text()), json.loads(gate_path.read_text())
-    if (meta["config"]["system"] != architecture(system) or meta["seed"] != seed or meta["purpose"] != "study" or not gate["passed"]
+    if allow_routing_degeneracy:
+        from admission import admit
+        meta["evaluation_admission"] = admit(path, allow_routing_degeneracy=True)
+    if (meta["config"]["system"] != architecture(system) or meta["seed"] != seed or meta["purpose"] != "study"
+            or (not allow_routing_degeneracy and not gate["passed"])
             or meta.get("training_intervention") is not None
             or meta["artifact_sha256"] != digest(path) or gate["artifact_sha256"] != digest(path)
             or gate["metadata_sha256"] != digest(meta_path) or meta["embedding_sha256"] != embedding_hash
@@ -56,7 +60,11 @@ def artifact(root, system, seed, embedding_hash):
 def jobs_for(args, embedding):
     tasks = args.dev_tasks if args.phase == "pilot" else args.eval_tasks
     task_list = load_tasks(tasks, reserved=[*args.reserved, args.train_tasks])
-    seeds = args.seeds[:1] if args.phase == "pilot" else args.seeds
+    amended = getattr(args, "allow_routing_degeneracy", False)
+    seeds = args.seeds if amended or args.phase == "main" else args.seeds[:1]
+    if not seeds or any(seed < 0 for seed in seeds) or len(set(seeds)) != len(seeds):
+        raise ValueError("comparison needs distinct nonnegative training seeds")
+    admission_args = {"allow_routing_degeneracy": True} if amended else {}
     if args.phase == "main" and (len(seeds) < 3 or len(set(seeds)) != len(seeds)):
         raise ValueError("main comparison requires >=3 distinct training seeds")
     systems: list[tuple[str, int | None, list[str], Path | None]] = [
@@ -70,10 +78,10 @@ def jobs_for(args, embedding):
         for seed in seeds:
             checkpoint = Path(root) / system / f"seed{seed}" / "router.pt"
             if args.command == "plan" and not checkpoint.exists():
-                _, meta = artifact(root, system, seeds[0], embedding["sha256"])
+                _, meta = artifact(root, system, seeds[0], embedding["sha256"], **admission_args)
                 artifact_hashes[(system, seed)] = "NOT_TRAINED_PROJECTION_ONLY"
             else:
-                checkpoint, meta = artifact(root, system, seed, embedding["sha256"])
+                checkpoint, meta = artifact(root, system, seed, embedding["sha256"], **admission_args)
                 artifact_hashes[(system, seed)] = meta["artifact_sha256"]
             if system.startswith("anymac-") and artifact_hashes[(system, seed)] != "NOT_TRAINED_PROJECTION_ONLY":
                 initial = meta["initial_policy_sha256"]
@@ -95,6 +103,8 @@ def jobs_for(args, embedding):
     for system, seed, roles, checkpoint in systems:
         label = system if seed is None else f"{system}/seed{seed}"
         extra = ["--checkpoint", str(checkpoint), "--embedding-model", embedding["path"]] if checkpoint else []
+        if checkpoint and amended:
+            extra += ["--allow-routing-degeneracy"]
         if args.phase == "pilot":
             cells = [(f"pilot/{label}", ["honest", "attack"], "bare", roles[0], 2)]
         else:
@@ -113,6 +123,9 @@ def jobs_for(args, embedding):
             jobs.append({"id": label, "system": system, "seed": seed, "role": role, "form": form,
                          "policies": policies, "reps": reps, "tasks": len(task_list), "argv": argv,
                          "artifact_sha256": artifact_hashes.get((system, seed))})
+            if checkpoint and amended:
+                from admission import admit
+                jobs[-1]["evaluation_admission"] = admit(checkpoint, allow_routing_degeneracy=True)
     return jobs, task_list
 
 
@@ -171,6 +184,8 @@ def completed_rows(jobs, tasks):
                 or (job["artifact_sha256"] and
                     manifest["provenance"]["artifact_sha256"] != job["artifact_sha256"])):
             raise ValueError(f"run does not match the current suite plan: {out}")
+        if manifest.get("evaluation_admission") != job.get("evaluation_admission"):
+            raise ValueError(f"evaluation admission differs from suite plan: {out}")
         traces = read_traces(out / "traces.jsonl", manifest, task_map)
         expected = {(t["id"], p, rep) for t in tasks for p in job["policies"] for rep in range(1, job["reps"] + 1)}
         if {(t["task_id"], t["policy"], t["rep"]) for t in traces} != expected:
@@ -262,11 +277,22 @@ def report(args, jobs, tasks):
               "interpretation": "Task CIs conditional on these training seeds. Not a population-of-seeds CI.",
               "artifacts": {f"{j['system']}/seed{j['seed']}": j["artifact_sha256"] for j in jobs if j["seed"] is not None},
               "source": source_digest(), "tasks_sha256": digest(args.dev_tasks if args.phase == "pilot" else args.eval_tasks)}
+    result["admissions"] = {f"{j['system']}/seed{j['seed']}": j["evaluation_admission"]
+                            for j in jobs if "evaluation_admission" in j}
+    result["honest_cells_by_checkpoint"] = {
+        f"{system}/seed{seed}": next(iter(summarize(
+            [r for r in honest if r["system"] == system and r["seed"] == seed]).values()))
+        for system, seed in sorted({(r["system"], r["seed"]) for r in honest if r["seed"] is not None})
+    }
+    # A good pooled mean must not hide a failing checkpoint.
+    result["passed"] = passed and all(output_quality(
+        [r for r in honest if r["system"] == system and r["seed"] == seed])["passed"]
+        for system, seed in {(r["system"], r["seed"]) for r in honest if r["seed"] is not None})
     result["trace_bytes_per_episode"] = {
         s: sum((job_out(j) / "traces.jsonl").stat().st_size for j in jobs if j["system"] == s) /
            sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs if j["system"] == s)
         for s in honest_cells}
-    if args.phase == "main":
+    if args.phase == "main" or getattr(args, "allow_routing_degeneracy", False):
         result["effects_by_seed"] = {str(seed): contrasts([r for r in rows if r["seed"] in (None, seed)])
                                      for seed in args.seeds}
     write_json(Path(args.out) / args.phase / "summary.json", result)
@@ -291,20 +317,28 @@ def main(argv=None):
     ap.add_argument("--threads", type=int, default=8)
     ap.add_argument("--seeds", nargs="+", type=int, default=[0, 1, 2])
     ap.add_argument("--approved-gpu-hours", type=float)
+    ap.add_argument("--allow-routing-degeneracy", action="store_true",
+                    help="explicit 2026-10-26 amendment; routing is an outcome, not an admission criterion")
     args = ap.parse_args(argv)
     embedding = json.loads(Path(args.assets or Path(args.learned_root) / "assets.json").read_text())["embedding"]
     jobs, tasks = jobs_for(args, embedding)
     plan = {"phase": args.phase, "source": source_digest(), "tasks_sha256": digest(
         args.dev_tasks if args.phase == "pilot" else args.eval_tasks), "jobs": jobs}
+    plan["episodes"] = sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs)
     if args.phase == "main":
         pilot = json.loads((Path(args.out) / "pilot/summary.json").read_text())
         if (not pilot["passed"] or pilot["source"] != source_digest()
                 or pilot["tasks_sha256"] != digest(args.dev_tasks)):
             raise ValueError("a complete, current, passed five-condition pilot is required")
-        for system in LEARNED:
-            seed = args.seeds[0]
+        for system, seed in {(j["system"], j["seed"]) for j in jobs if j["seed"] is not None}:
             current = next(j["artifact_sha256"] for j in jobs if j["system"] == system and j["seed"] == seed)
-            if pilot["artifacts"][f"{system}/seed{seed}"] != current:
+            if (getattr(args, "allow_routing_degeneracy", False)
+                    and pilot.get("admissions", {}).get(f"{system}/seed{seed}") != next(
+                        j["evaluation_admission"] for j in jobs if j["system"] == system and j["seed"] == seed)):
+                raise ValueError("main needs the same amended admission for every pilot checkpoint")
+            pilot_hash = pilot["artifacts"].get(f"{system}/seed{seed}")
+            if ((getattr(args, "allow_routing_degeneracy", False) or seed == args.seeds[0])
+                    and pilot_hash != current):
                 raise ValueError("pilot checkpoint changed; rerun the development pilot in a new output")
         plan["estimate"] = estimate(jobs, pilot)
     if args.command == "plan":

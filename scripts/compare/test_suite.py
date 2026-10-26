@@ -73,6 +73,57 @@ def test_default_main_has_193_runs_and_12240_episodes_for_60_tasks(monkeypatch, 
     assert sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs) == 12240
 
 
+def test_amended_pilot_uses_every_seed_and_records_admission(monkeypatch, tmp_path):
+    import admission
+    def fake(root, system, seed, embedding_hash, allow_routing_degeneracy=False):
+        assert allow_routing_degeneracy is True
+        return fake_artifact(root, system, seed, embedding_hash)
+    decision = {"policy": admission.POLICY, "original_failed_checks": ["nontrivial_cooperation"]}
+    monkeypatch.setattr(suite, "artifact", fake)
+    monkeypatch.setattr(admission, "admit", lambda path, allow_routing_degeneracy: decision)
+    args = arguments(tmp_path)
+    args.allow_routing_degeneracy = True
+    jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+    assert len(jobs) == 11
+    assert sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs) == 88
+    assert {j["seed"] for j in jobs} == {None, 0, 1, 2}
+    for job in jobs:
+        if job["seed"] is not None:
+            assert "--allow-routing-degeneracy" in job["argv"]
+            assert job["evaluation_admission"] == decision
+            assert job["role"] == "Expert"  # unchanged pre-existing first-role rule
+        else:
+            assert "--allow-routing-degeneracy" not in job["argv"]
+
+
+def test_pilot_does_not_hide_bad_seed_in_pooled_quality(monkeypatch, tmp_path):
+    from test_compare import episode, MC
+    args = arguments(tmp_path)
+    args.allow_routing_degeneracy = True
+    args.seeds = [0, 1]
+    trace, _ = episode()
+    base_row = suite.score(trace, MC)
+    rows, jobs = [], []
+    for seed in args.seeds:
+        for i in range(12):
+            row = dict(base_row, system="anymac-normal", seed=seed, task_id=f"task/{i}",
+                       role="Expert", form="bare")
+            if seed == 1 and i == 0:
+                row.update(outcome="invalid_format", correct=False, pred=None)
+            rows.append(row)
+        out = tmp_path / f"seed{seed}"
+        out.mkdir()
+        (out / "traces.jsonl").write_text("{}\n")
+        jobs.append({"argv": ["--out", str(out)], "system": "anymac-normal", "seed": seed,
+                     "artifact_sha256": str(seed), "tasks": 12, "reps": 1, "policies": ["honest"]})
+    monkeypatch.setattr(suite, "completed_rows", lambda jobs, tasks: rows)
+    (args.out / args.phase).mkdir(parents=True)
+    result = suite.report(args, jobs, [MC])
+    assert result["honest_cells"]["anymac-normal"]["invalid_format"] < .05
+    assert result["honest_cells_by_checkpoint"]["anymac-normal/seed1"]["invalid_format"] > .05
+    assert result["passed"] is False
+
+
 def test_main_refuses_old_unreserved_sample(monkeypatch, tmp_path):
     monkeypatch.setattr(suite, "artifact", fake_artifact)
     args = arguments(tmp_path, "main")
@@ -179,14 +230,20 @@ def test_normal_and_efficient_architecture_traces_are_never_pooled_under_one_lab
     rows = suite.completed_rows(jobs, [MC])
     assert {r["system"] for r in rows} == {"anymac-normal", "anymac-efficient"}
     assert set(suite.summarize(rows)) == {"anymac-normal/honest", "anymac-efficient/honest"}
+    jobs[0]["evaluation_admission"] = {"policy": "changed"}
+    with pytest.raises(ValueError, match="admission differs"):
+        suite.completed_rows(jobs, [MC])
 
 
 def test_clean_suite_rejects_wrong_profile_and_intervention_artifacts(tmp_path):
+    import admission
+    import learned
     import train_learned
     path = tmp_path / "anymac-normal/seed0/router.pt"
     path.parent.mkdir(parents=True)
     path.write_bytes(b"hash-only-test")
-    meta = {"config": {"system": "anymac-corrected", "training_profile": "normal",
+    meta = {"schema": learned.ARTIFACT_SCHEMA,
+            "config": {"system": "anymac-corrected", "training_profile": "normal",
                        **train_learned.ANYMAC_PROFILES["normal"]},
             "seed": 0, "purpose": "study", "artifact_sha256": suite.digest(path),
             "initial_policy_sha256": "a" * 64,
@@ -196,6 +253,8 @@ def test_clean_suite_rejects_wrong_profile_and_intervention_artifacts(tmp_path):
         path.with_suffix(".json").write_text(json.dumps(meta))
         gate = {"passed": True, "artifact_sha256": suite.digest(path),
                 "metadata_sha256": suite.digest(path.with_suffix(".json")),
+                "checks": {key: True for key in admission.REQUIRED_CHECKS},
+                "routing": {"worker_episode_rate": 1.0, "nontrivial": True},
                 "runtime_sources": suite.runtime_sources(), "environment": suite.environment()}
         path.with_suffix(".gate.json").write_text(json.dumps(gate))
     write()
@@ -209,3 +268,19 @@ def test_clean_suite_rejects_wrong_profile_and_intervention_artifacts(tmp_path):
     write()
     with pytest.raises(ValueError, match="gate"):
         suite.artifact(tmp_path, "anymac-normal", 0, "embed")
+    meta["training_intervention"] = None
+    write()
+    gate_path = path.with_suffix(".gate.json")
+    gate = json.loads(gate_path.read_text())
+    gate["passed"] = False
+    gate["checks"]["nontrivial_cooperation"] = False
+    gate_path.write_text(json.dumps(gate))
+    with pytest.raises(ValueError, match="gate"):
+        suite.artifact(tmp_path, "anymac-normal", 0, "embed")
+    _, admitted = suite.artifact(tmp_path, "anymac-normal", 0, "embed", True)
+    assert admitted["evaluation_admission"]["original_gate_passed"] is False
+    assert admitted["evaluation_admission"]["original_failed_checks"] == ["nontrivial_cooperation"]
+    gate["checks"]["format"] = False
+    gate_path.write_text(json.dumps(gate))
+    with pytest.raises(ValueError, match="gate"):
+        suite.artifact(tmp_path, "anymac-normal", 0, "embed", True)

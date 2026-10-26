@@ -32,7 +32,11 @@ def learned_system(args):
         raise SystemExit("learned systems require --checkpoint and --embedding-model (local, frozen artifacts)")
     if args.roles:
         raise SystemExit("learned roles are checkpoint-bound; do not override with --roles")
-    system = load_system(args.checkpoint, args.embedding_model)
+    allow = getattr(args, "allow_routing_degeneracy", False)
+    if allow:
+        from admission import admit
+        admit(args.checkpoint, allow_routing_degeneracy=True)
+    system = load_system(args.checkpoint, args.embedding_model, require_gate=not allow)
     if system.name != args.system:
         raise SystemExit("checkpoint belongs to another system")
     return system
@@ -164,6 +168,8 @@ def load_attack(args, tasks):
 
 
 def run(args, llm=None, identity=None):
+    if getattr(args, "allow_routing_degeneracy", False) and args.system not in ("anymac-corrected", "gdesigner-paper"):
+        raise SystemExit("--allow-routing-degeneracy applies only to learned checkpoints")
     system = SYSTEMS[args.system](args)
     if args.compromised not in system.worker_identities():
         raise SystemExit(f"--compromised must be one of {system.worker_identities()}")
@@ -183,6 +189,9 @@ def run(args, llm=None, identity=None):
                 "tasks_sha256": sha256_bytes(Path(args.tasks).read_bytes()), "task_ids": [t["id"] for t in tasks],
                 "reserved_sha256": [sha256_bytes(Path(r).read_bytes()) for r in args.reserved],
                 "model": identity, "source": source_digest()}
+    if getattr(args, "allow_routing_degeneracy", False):
+        from admission import admit
+        manifest["evaluation_admission"] = admit(args.checkpoint, allow_routing_degeneracy=True)
     if attack["form"] != "bare":
         manifest["attack"] = attack  # bare manifests stay identical to schema-2 runs
     out = Path(args.out)
@@ -273,7 +282,9 @@ def main(argv=None):
     r.add_argument("--target-seed", type=int, default=0)
     r.add_argument("--attack-form", choices=["bare", "persuasive"], default="bare")
     r.add_argument("--attack-texts", help="frozen persuasive texts (attack_texts.py generate)")
-    r.add_argument("--checkpoint", help="frozen learned-router tensor artifact with passed development gate")
+    r.add_argument("--checkpoint", help="frozen learned-router tensor artifact with development gate")
+    r.add_argument("--allow-routing-degeneracy", action="store_true",
+                   help="explicit amended admission: only nontrivial_cooperation may fail; original gate preserved")
     r.add_argument("--embedding-model", help="local, content-hashed all-MiniLM-L6-v2 directory")
     p = sub.add_parser("report")
     p.add_argument("--tasks", required=True)

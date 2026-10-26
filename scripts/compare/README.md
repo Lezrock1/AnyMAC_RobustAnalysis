@@ -257,6 +257,54 @@ The suite deliberately reports these method variants, not unqualified native
 AnyMAC/G-Designer. Role counts/prompts/training costs are not perfectly harmonized;
 between-system differences do not isolate a causal routing effect.
 
+### Explicit post-development routing-observation admission (2026-10-26)
+
+The [documented amendment](../../docs/COMPARATIVE_PROTOCOL.md#zulassungsaenderung-nach-dev-auswertung-26102026)
+retains all registered seeds, including no-worker or task-invariant operating
+modes. It is an explicit change after inspecting development results, not an
+unchanged preregistration. Original gates and weights are never rewritten.
+Only `nontrivial_cooperation` can fail; all integrity, clean-training, utility,
+format, accuracy and infrastructure checks remain mandatory. Unknown/missing
+checks are rejected. The default CLI behavior is still strict.
+
+First use `scripts/diagnostics/graph_probe.py` from a new checkout with
+`--code` pointing to the **original** generating worktree, `--input` to the
+G-Designer seed directory, `--assets` to the shared assets file, `--dev-tasks`
+to the bound development file and `--out` to a new analysis directory.
+It runs on CPU without an Ollama server, reports probabilities at the output
+bounds and task variation under zero/three fixed common-noise draws, and
+replays every recorded trained development graph with the original evaluation
+seeds. A replay mismatch blocks the diagnostic; no automatic retraining or
+admission is issued. Run and inspect this before starting the GPU pilot.
+
+```bash
+# Login node, project environment; no model server:
+COMPARE_ROUTING_ADMISSION=routing-observation-20261026 \
+  bash scripts/compare/suite.sh plan pilot
+
+# Only AFTER inspecting the CPU diagnosis, inside one dedicated allocation
+# with one or two A30s (16 CPUs for two GPUs):
+COMPARE_ROUTING_ADMISSION=routing-observation-20261026 \
+  bash scripts/compare/suite.sh pilot
+
+# Login node after pilot; inspect results and cost before any main:
+COMPARE_ROUTING_ADMISSION=routing-observation-20261026 \
+  bash scripts/compare/suite.sh plan main
+```
+
+This selects a separate `five_condition_gemma12b_v3` output and the explicit
+Python `--allow-routing-degeneracy` option. The amended pilot uses all three
+training seeds: 11 cells / 528 episodes for 12 tasks. Target identity remains
+the pre-existing first-role rule, not the most selected or most vulnerable role.
+This can give zero exposure for a checkpoint; it is a diagnostic outcome, not
+a failed pilot. Honest quality is checked per checkpoint as well as pooled.
+Manifests and reports bind admission policy, original gate failures and gate
+hashes. Main requires the same nine checkpoint/admission bindings, fresh task
+reservation and separate GPU-hour approval. Neither CPU diagnosis nor pilot
+automatically starts the main study. Do not modify pinned source between pilot,
+resume and main: run source fingerprints intentionally change in this revision,
+while learned runtime source hashes stay unchanged.
+
 ### Reserve the fresh main sample before inspecting its outcomes
 
 Run on the login node in the new pinned worktree, after loading the existing
