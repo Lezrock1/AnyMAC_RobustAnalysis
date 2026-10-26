@@ -255,7 +255,9 @@ entfernenden Aufgaben. Die Freigabe beruht auf ehrlicher Ausgabequalitaet.
 
 Erst nach bestandenem Pilot und drei Trainingsseeds je gelerntem Router:
 
-- 60 vorab reservierte Aufgaben, kein Nachsamplen anhand von Angriffserfolgen.
+- 200 frisch reservierte offizielle Testfragen, thematisch ausgewogen (14/15 je
+  Bereich); Nutzerentscheidung vom 26.10.2026 ersetzt die alte 60-Fragen-Planung.
+  Kein Nachsamplen anhand von Angriffserfolgen. Alte 60 bleiben ausgeschlossen.
 - Ehrlich: zwei Wiederholungen pro System/Checkpoint.
 - Angriff: eine Wiederholung, jede Workerrolle rotiert, `bare` und `persuasive`.
 - Gemeinsame Aufrufhuelle 32, keine erzwungene Ausschoepfung.
@@ -269,7 +271,7 @@ Erst nach bestandenem Pilot und drei Trainingsseeds je gelerntem Router:
   Modellcache/Checkpoints und persoenliche Quota separat beruecksichtigen.
 
 Mit beiden AnyMAC-Profilen und den Standardrollen sind das
-**193 Einzellaeufe und 12.240 Episoden** (ohne Trainingsinterventionen).
+**193 Einzellaeufe und 40.800 Episoden** (ohne Trainingsinterventionen).
 Diese hohe Zahl ist KEIN Argument fuer den sofortigen Start. Zuerst gemessene
 Laufzeit, ehrliche Leistung und Routingdiagnostik bewerten. Rollenanzahl,
 Prompts und Trainingsumfang sind nicht voll harmonisiert. Systemunterschiede
@@ -283,7 +285,7 @@ ehrlich je Form; persuasive minus bare. Wiederholungen, Rollen und Seeds werden
 Zusaetzlich Effekte je Trainingsseed. Aufgaben-CIs sind bedingt auf diese Seeds,
 keine Unsicherheit ueber eine Population moeglicher Routertrainings.
 
-Die 60 Aufgaben bleiben 60 unabhaengige Aufgabeneinheiten, nicht 12.240.
+Die 200 Aufgaben bleiben 200 Aufgabeneinheiten, nicht 40.800.
 Sie garantieren keine Praezision fuer 0,10-Effekte. Breite Intervalle sind
 unentschieden; fuer engere Bestaetigungsintervalle ist spaeter ein getrennt
 vorregistrierter, neuer Aufgabensatz erforderlich. `bare` und `persuasive`

@@ -242,8 +242,8 @@ bash scripts/compare/suite.sh report main
 
 There is no implicit multi-day start. The admission estimate includes a 25% margin
 but is not a runtime limit; set the Slurm wall time independently. Main data have
-60 independent task units, not thousands. The default full schedule has 193
-runs / 12,240 episodes, excluding trust interventions, and can be expensive;
+200 task units, not thousands. The current full schedule has 193
+runs / 40,800 episodes, excluding trust interventions, and can be expensive;
 inspect the measured projection first.
 Thread count is allocated CPUs divided by GPUs. Servers are refused on occupied
 ports, checked against the trained worker identity, and stopped on exit. Queue
@@ -305,7 +305,7 @@ automatically starts the main study. Do not modify pinned source between pilot,
 resume and main: run source fingerprints intentionally change in this revision,
 while learned runtime source hashes stay unchanged.
 
-### Reserve the fresh main sample before inspecting its outcomes
+### Reserve 200 topic-balanced main questions before inspecting outcomes
 
 Run on the login node in the new pinned worktree, after loading the existing
 project environment. Uses the cached pinned official test parquet, with
@@ -313,19 +313,35 @@ project environment. Uses the cached pinned official test parquet, with
 duplicate texts, including the official-validation training sample.
 
 ```bash
-python scripts/compare/prepare_main.py \
-  --out "$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json" \
+python scripts/diagnostics/reserve_balanced_main.py \
+  --out "$RESULTS_DIR/compare/main_balanced200_v1/eval_tasks.json" \
   --reserved "$RESULTS_DIR/screen/screen_tasks_v1.json" \
     "$RESULTS_DIR/screen/screen_tasks_r2.json" \
     "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json" \
     "$RESULTS_DIR/compare/dylan_study_v1/eval_tasks.json" \
-    "$RESULTS_DIR/compare/learned_gemma12b_v1/train_tasks.json"
+    "$RESULTS_DIR/compare/learned_gemma12b_v1/train_tasks.json" \
+    "$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json"
 ```
 
-The sample cannot be overwritten. Main suite now requires the fresh reservation
-marker and bound exclusion hashes; historical 60-task inputs no longer qualify.
+The sample cannot be overwritten. It uses the cached official test split and
+all 14 categories, drawing 14 questions in ten categories and 15 in four
+seed-randomized categories, then shuffling all 200 (seed 20261026). Topic quotas
+are enforced after ID/normalized-text exclusions, with no silent reallocation.
+Quotas, realized counts, source and exclusion hashes are recorded. The prior
+60-question reservation remains unchanged and excluded. This estimates an
+approximately topic-balanced mixture, not natural benchmark frequencies or an
+exact equally weighted topic macro-average. Only 14/15 questions per topic are
+not sufficient for precise topic-specific rankings.
+
+The generator lives outside comparison Python so the running c33366b pilot and
+the next main worktree keep identical Python source fingerprints. Do not update
+the live pilot worktree; use a separate checkout for reservation and main.
+Main suite requires the fresh reservation marker and bound exclusion hashes.
 Do not inspect main outcomes to choose role, seed, benchmark or training condition.
-60 tasks do not establish a 5-percentage-point noninferiority margin.
+Even 200 tasks do not automatically establish a 5-percentage-point
+noninferiority margin. The current 12-question/528-episode technical pilot is
+unchanged; the 200-question decision applies to the main comparison, not every
+runtime smoke/development test. Approve the increased GPU budget separately.
 
 ### Optional 2x2 training-message intervention preparation
 

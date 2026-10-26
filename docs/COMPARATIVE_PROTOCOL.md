@@ -51,7 +51,7 @@ ehrliche Qualitaet eines einzelnen Checkpoints darf nicht durch Pooling verdeckt
 werden. Pro-Seed-Resultate und Original-Gates bleiben sichtbar.
 
 Neue Ergebnisse liegen getrennt unter `five_condition_gemma12b_v3`.
-Der Hauptplan bleibt 193 Laeufe/12.240 Episoden mit allen registrierten Rollen,
+Der damalige 60-Aufgaben-Hauptplan hatte 193 Laeufe/12.240 Episoden mit allen registrierten Rollen,
 drei Trainingsseeds, frischen Aufgaben und explizitem GPU-Stundenbudget.
 Freigabe erfordert einen vollstaendigen, aktuellen Pilot mit denselben neun
 Checkpoint-Hashes und Zulassungsentscheidungen. Kein automatischer Hauptstart.
@@ -62,6 +62,38 @@ Nicht exponierte Episoden bleiben im unbedingten Systemeffekt enthalten.
 Expositionsbedingte Kennzahlen sind deskriptiv; kein Worker ist kein Nachweis
 erfolgreicher Manipulationserkennung. Die Mechanismusanalyse und getrennte
 Trainingsmanipulation duerfen daraus keinen kausalen Dynamikvorteil ableiten.
+
+### Erweiterung auf 200 thematisch ausgewogene Testfragen (26.10.2026)
+
+Nutzerentscheidung vor Hauptresultaten: 200 neue Fragen statt 60, annaehernd
+gleichmaessig ueber alle 14 offiziellen MMLU-Pro-Themenbereiche. Zehn Bereiche
+erhalten je 14, vier je 15 Fragen. Die vier Extrakontingente werden mit festem
+Seed zufaellig bestimmt; Auswahl innerhalb der Bereiche und abschliessende
+Mischung ebenfalls reproduzierbar mit Seed 20261026, unabhaengig von Resultaten.
+
+Quelle bleibt der gecachte, revisionsgebundene offizielle **Testsplit**, nicht
+der Validation-Trainingssplit oder das zwoelf-Fragen-Dev-Set. IDs und normalisierte
+Textduplikate aus beiden Screenings, Dev, alter DyLAN-Studie, Routertraining und
+der bisherigen 60-Fragen-Reservierung werden ausgeschlossen. Pro Bereich wird
+das Kontingent nach Ausschluss geprueft; bei Mangel kein stiller Ersatz aus
+anderen Bereichen. Datei und Themenkontingente werden unter
+`main_balanced200_v1/eval_tasks.json` eingefroren. Noch keine Ramses-Reservierung
+behaupten, bevor deren Ausgabe vorliegt.
+
+Das Zielmass ist der Durchschnitt der realisierten annaehernd gleichgewichteten
+Themenmischung (14/15), nicht der nach natuerlicher Testhaeufigkeit gewichtete
+Gesamtbenchmark. Nicht als exakter Makromittelwert oder offizielle
+Benchmark-Gesamtleistung ausweisen. 14/15 Fragen pro Bereich erlauben keine
+praezisen Einzelthemen-Ranglisten. 200 Fragen garantieren keine kleine
+Nichtunterlegenheitsmarge; Wiederholungen/Seeds/Rollen bleiben innerhalb Aufgabe.
+
+Bei unveraenderter Rollen-/Seed-Breite: **193 Laeufe, 40.800 Episoden**,
+Kosten grob Faktor 200/60 gegenueber dem alten Hauptplan. Der laufende Pilot
+bleibt bei 528 Episoden auf zwoelf bekannten Dev-Aufgaben, keine Umstellung
+waehrend Job 6987782. Die neue Reservierung liegt ausserhalb der
+Comparison-Pythonquellen; deren Fingerprints bleiben fuer Pilot/Main identisch.
+Das Shell-Startskript verweist anschliessend auf die neue 200-Fragen-Datei.
+Budget wird erst anhand der Pilotprojektion ausdruecklich freigegeben.
 
 ## Ziel und Ressourcen
 

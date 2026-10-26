@@ -56,7 +56,8 @@ def test_pilot_and_main_schedule(monkeypatch, tmp_path):
         suite.jobs_for(args, {"path": "embed", "sha256": "x"})
 
 
-def test_default_main_has_193_runs_and_12240_episodes_for_60_tasks(monkeypatch, tmp_path):
+@pytest.mark.parametrize("n,episodes", [(60, 12240), (200, 40800)])
+def test_main_has_193_runs_and_scales_with_tasks(monkeypatch, tmp_path, n, episodes):
     def full_artifact(*args):
         path, meta = fake_artifact(*args)
         meta["config"]["roles"] = ["Knowledgeable Expert", "Critic", "Mathematician", "Psychologist",
@@ -64,13 +65,13 @@ def test_default_main_has_193_runs_and_12240_episodes_for_60_tasks(monkeypatch, 
         return path, meta
     monkeypatch.setattr(suite, "artifact", full_artifact)
     args = arguments(tmp_path, "main")
-    eval_tasks = [{"id": f"eval/{i}", "kind": "mc", "text": "Q", "truth": "A", "n_options": 4} for i in range(60)]
+    eval_tasks = [{"id": f"eval/{i}", "kind": "mc", "text": "Q", "truth": "A", "n_options": 4} for i in range(n)]
     document = json.loads(args.eval_tasks.read_text())
     document["tasks"] = eval_tasks
     args.eval_tasks.write_text(json.dumps(document))
     jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
     assert len(jobs) == 193
-    assert sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs) == 12240
+    assert sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs) == episodes
 
 
 def test_amended_pilot_uses_every_seed_and_records_admission(monkeypatch, tmp_path):

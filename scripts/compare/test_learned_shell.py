@@ -138,6 +138,7 @@ def test_amended_pilot_plan_needs_no_gpu_and_has_separate_output(driver):
     assert args[args.index("--phase") + 1] == "pilot"
     assert "--allow-routing-degeneracy" in args
     assert args[args.index("--out") + 1].endswith("five_condition_gemma12b_v3")
+    assert args[args.index("--eval-tasks") + 1].endswith("main_balanced200_v1/eval_tasks.json")
 
 
 def test_unknown_admission_is_rejected_before_gpu_start(driver):

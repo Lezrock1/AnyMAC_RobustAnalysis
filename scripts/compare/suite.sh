@@ -17,7 +17,8 @@ learned="$RESULTS_DIR/compare/learned_gemma12b_v1"
 reserved=("$RESULTS_DIR/screen/screen_tasks_v1.json" "$RESULTS_DIR/screen/screen_tasks_r2.json")
 if [[ "$phase" == main ]]; then
   reserved+=("$RESULTS_DIR/compare/dylan_study_v1/eval_tasks.json"
-             "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json")
+             "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json"
+             "$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json")
 fi
 output="$RESULTS_DIR/compare/five_condition_gemma12b_v2"
 amended=0
@@ -33,7 +34,7 @@ args=("$command" --phase "$phase" --learned-root "$RESULTS_DIR/compare/learned_g
       --assets "$learned/assets.json"
       --gdesigner-root "$learned"
       --dev-tasks "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json"
-      --eval-tasks "$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json"
+      --eval-tasks "$RESULTS_DIR/compare/main_balanced200_v1/eval_tasks.json"
       --train-tasks "$learned/train_tasks.json"
       --reserved "${reserved[@]}"
       --out "$output")
