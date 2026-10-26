@@ -30,6 +30,8 @@ ASSETS = {"embedding": ("sentence-transformers/all-MiniLM-L6-v2",
           "backbone": ("openai-community/gpt2", "607a30d783dfa663caf39e06633721c8d4cfcd7e")}
 
 DATA_REVISION = "b189ec765aa7ed75c8acfea42df31fdae71f97be"
+PAPER_REGIMES = ("paper-aligned-v1", "paper-aligned-v2")
+TRAILING_NA_POLICY = "trim-trailing-na/preserve-letters/v1"
 
 
 def training_sample(rows, reserved, n=40, seed=20261023):
@@ -67,10 +69,32 @@ def prepare(args):
         raise ValueError("training sample is frozen; use a new path")
     file = "data/validation-00000-of-00001.parquet"
     source = hf_hub_download("TIGER-Lab/MMLU-Pro", file, revision=DATA_REVISION, repo_type="dataset")
-    reserved = [t for path in args.reserved for t in json.loads(Path(path).read_text())["tasks"]]
+    reserved_docs = {str(path): json.loads(Path(path).read_text())["tasks"] for path in args.reserved}
+    reserved = [t for tasks in reserved_docs.values() for t in tasks]
     all_validation = getattr(args, "all_validation", False)
-    tasks = training_sample(mc_rows("mmlu_pro", pd.read_parquet(source)), reserved,
-                            n=None if all_validation else 40)
+    trim = getattr(args, "trim_trailing_na", False)
+    if trim and not all_validation:
+        raise ValueError("--trim-trailing-na requires --all-validation")
+    frame = pd.read_parquet(source)
+    rows = mc_rows("mmlu_pro", frame, trim_trailing_na=trim)
+    tasks = training_sample(rows, reserved, n=None if all_validation else 40)
+    audit = None
+    if trim:
+        per_file = {}
+        for path, blocked in reserved_docs.items():
+            ids = {t["id"] for t in blocked}
+            texts = {" ".join(t["text"].split()).casefold() for t in blocked}
+            per_file[path] = [
+                r["id"].replace("mmlu_pro/", "mmlu_pro/validation/", 1) for r in rows
+                if r["id"].replace("mmlu_pro/", "mmlu_pro/validation/", 1) in ids
+                or " ".join(r["text"].split()).casefold() in texts]
+        padded = [r for _, r in frame.iterrows()
+                  if any(str(o).strip() == "N/A" for o in r["options"])]
+        audit = {"raw_questions": len(frame), "questions_with_trimmed_na": len(padded),
+                 "removed_na_options": sum(sum(str(o).strip() == "N/A" for o in r["options"]) for r in padded),
+                 "after_options": len(rows), "excluded_overlap_unique": len(rows) - len(tasks),
+                 "overlap_ids_by_reserved_file": per_file, "selected_questions": len(tasks),
+                 "note": "Per-file overlap counts may overlap; unique exclusion count is authoritative."}
     out.parent.mkdir(parents=True, exist_ok=True)
     write_json(out, {"schema": 1, "tasks": tasks, "sample_seed": 20261023,
                      "source": {"repo": "TIGER-Lab/MMLU-Pro", "revision": DATA_REVISION, "file": file,
@@ -78,8 +102,13 @@ def prepare(args):
                      "excluded_from": args.reserved,
                      "excluded_sha256": {str(p): digest(p) for p in args.reserved},
                      "selection": "all-eligible-validation" if all_validation else "random-40",
+                     "option_preprocessing": TRAILING_NA_POLICY if trim else "legacy-drop-placeholder-questions",
+                     "preparation_audit": audit,
                      "subject_counts": dict(Counter(t["subject"] for t in tasks))})
     print(f"wrote {len(tasks)} disjoint official-validation training tasks to {out}")
+    if audit is not None:
+        print(json.dumps({"preparation_audit": audit,
+                          "subject_counts": dict(Counter(t["subject"] for t in tasks))}, indent=2))
 
 
 def assets(args):
@@ -196,7 +225,7 @@ def training_config(config, profile, regime="preliminary-v1"):
         if profile not in ANYMAC_PROFILES:
             raise ValueError("AnyMAC training requires an explicit normal/efficient/historical-095 profile")
         config.update(ANYMAC_PROFILES[profile], training_profile=profile)
-        if regime == "paper-aligned-v1":
+        if regime in PAPER_REGIMES:
             if profile == "historical-095":
                 raise ValueError("paper-aligned training requires normal or efficient")
             config["max_workers"] = 5
@@ -266,16 +295,20 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
         raise ValueError("training and development sets must be nonempty")
     regime = getattr(args, "training_regime", "preliminary-v1")
     budget = getattr(args, "trajectory_budget", None)
-    if regime == "paper-aligned-v1":
+    if regime in PAPER_REGIMES:
         if args.system != "anymac-corrected":
-            raise ValueError("paper-aligned-v1 budget changes apply only to AnyMAC; keep G-Designer 40x10")
+            raise ValueError("paper-aligned budget changes apply only to AnyMAC; keep G-Designer 40x10")
         if args.purpose == "study" and (budget != 1000 or args.samples != 8):
-            raise ValueError("paper-aligned-v1 study requires exactly 1000 trajectories in groups of 8")
+            raise ValueError("paper-aligned study requires exactly 1000 trajectories in groups of 8")
         document = json.loads(Path(args.tasks).read_text())
         if (document.get("selection") != "all-eligible-validation"
                 or document.get("source", {}).get("split") != "validation"
                 or document.get("source", {}).get("revision") != DATA_REVISION):
             raise ValueError("paper-aligned training needs the frozen all-eligible official validation sample")
+        expected_options = (TRAILING_NA_POLICY if regime == "paper-aligned-v2"
+                            else "legacy-drop-placeholder-questions")
+        if document.get("option_preprocessing", "legacy-drop-placeholder-questions") != expected_options:
+            raise ValueError("option preprocessing differs from training regime; use a NEW pool/output")
         blocked_texts = {" ".join(t["text"].split()).casefold() for p in [*args.reserved, args.dev_tasks]
                          for t in load_tasks(p)}
         if any(" ".join(t["text"].split()).casefold() in blocked_texts for t in training):
@@ -355,7 +388,7 @@ def train(args, llm=None, embedder=None, config=None, policy=None):
             progress = saved["progress"]
         def learning_point():
             count = progress["trajectories"]
-            if regime != "paper-aligned-v1" or not count or count % 200:
+            if regime not in PAPER_REGIMES or not count or count % 200:
                 return
             rows = evaluate(system, llm, dev, out / f"dev_budget_{count}.jsonl",
                             args.max_calls, args.seed + 100000)
@@ -478,6 +511,8 @@ def main(argv=None):
     pr.add_argument("--reserved", nargs="+", required=True)
     pr.add_argument("--all-validation", action="store_true",
                     help="use all eligible validation questions with subject coverage; never use test")
+    pr.add_argument("--trim-trailing-na", action="store_true",
+                    help="remove only trailing N/A padding, preserving official option letters; new pool only")
     ac = sub.add_parser("assets")
     ac.add_argument("--cache", required=True)
     ac.add_argument("--out", required=True)
@@ -494,7 +529,7 @@ def main(argv=None):
     tr.add_argument("--epochs", type=int, default=1)
     tr.add_argument("--trajectory-budget", type=int,
                     help="exact rollout count, cycling through seeded shuffled training passes")
-    tr.add_argument("--training-regime", choices=("preliminary-v1", "paper-aligned-v1"),
+    tr.add_argument("--training-regime", choices=("preliminary-v1", *PAPER_REGIMES),
                     default="preliminary-v1")
     tr.add_argument("--lr", type=float, default=1e-5)
     tr.add_argument("--anymac-profile", choices=tuple(ANYMAC_PROFILES),

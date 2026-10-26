@@ -19,12 +19,14 @@ def driver(tmp_path):
     results = repo / "results"
     for folder in ("screen", "compare/learned_gemma12b_v1", "compare/dylan_study_v1",
                    "compare/gemma12b_preflight_v1", "compare/learned_gemma12b_paper_v1",
+                   "compare/learned_gemma12b_paper_v2",
                    "compare/main_reserved_v2", "compare/main_balanced200_v1"):
         (results / folder).mkdir(parents=True, exist_ok=True)
     for f in ("screen/screen_tasks_v1.json", "screen/screen_tasks_r2.json",
               "compare/dylan_study_v1/eval_tasks.json", "compare/gemma12b_preflight_v1/dev_tasks.json",
               "compare/learned_gemma12b_v1/train_tasks.json",
               "compare/learned_gemma12b_paper_v1/train_tasks.json",
+              "compare/learned_gemma12b_paper_v2/train_tasks.json",
               "compare/main_reserved_v2/eval_tasks.json", "compare/main_balanced200_v1/eval_tasks.json"):
         (results / f).write_text(json.dumps({"tasks": [
             {"id": f + str(i), "text": "question", "truth": "A", "kind": "mc", "n_options": 4}
@@ -152,16 +154,17 @@ def test_unknown_admission_is_rejected_before_gpu_start(driver):
 
 
 @pytest.mark.parametrize("mode,budget,samples", [("train", "1000", "8"), ("smoke", "4", "2")])
-def test_paper_regime_is_isolated_and_explicit(driver, mode, budget, samples):
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_paper_regime_is_isolated_and_explicit(driver, mode, budget, samples, version):
     r, calls, _ = driver("learned.sh", mode, "anymac-efficient",
-                         COMPARE_TRAINING_REGIME="paper-aligned-v1")
+                         COMPARE_TRAINING_REGIME=f"paper-aligned-{version}")
     assert r.returncode == 0, r.stderr
     train = calls[0]
     assert train[train.index("--trajectory-budget") + 1] == budget
     assert train[train.index("--samples") + 1] == samples
-    assert train[train.index("--training-regime") + 1] == "paper-aligned-v1"
-    assert "learned_gemma12b_paper_v1/" in train[train.index("--tasks") + 1]
-    assert "learned_gemma12b_paper_v1/" in train[train.index("--out") + 1]
+    assert train[train.index("--training-regime") + 1] == f"paper-aligned-{version}"
+    assert f"learned_gemma12b_paper_{version}/" in train[train.index("--tasks") + 1]
+    assert f"learned_gemma12b_paper_{version}/" in train[train.index("--out") + 1]
     assert any("main_balanced200_v1" in arg for arg in train)
     assert len(calls) == (2 if mode == "train" else 1)
 
@@ -173,15 +176,16 @@ def test_paper_regime_retains_existing_gdesigner_and_rejects_unknown_regime(driv
         assert r.returncode and message in r.stderr and not calls and not events
 
 
-def test_paper_suite_keeps_sealed_main_and_original_gdesigner_root(driver):
+@pytest.mark.parametrize("version", ["v1", "v2"])
+def test_paper_suite_keeps_sealed_main_and_original_gdesigner_root(driver, version):
     r, calls, events = driver("suite.sh", "plan", "pilot",
-                             COMPARE_TRAINING_REGIME="paper-aligned-v1",
+                             COMPARE_TRAINING_REGIME=f"paper-aligned-{version}",
                              COMPARE_ROUTING_ADMISSION="routing-observation-20261026")
     assert r.returncode == 0, r.stderr
     assert len(calls) == 1 and not events
     args = calls[0]
-    assert args[args.index("--learned-root") + 1].endswith("learned_gemma12b_paper_v1")
+    assert args[args.index("--learned-root") + 1].endswith(f"learned_gemma12b_paper_{version}")
     assert args[args.index("--gdesigner-root") + 1].endswith("learned_gemma12b_v1")
-    assert args[args.index("--out") + 1].endswith("five_condition_gemma12b_paper_v1_routing")
+    assert args[args.index("--out") + 1].endswith(f"five_condition_gemma12b_paper_{version}_routing")
     assert args[args.index("--train-tasks") + 1].endswith("learned_gemma12b_v1/train_tasks.json")
-    assert args[args.index("--anymac-training-tasks") + 1].endswith("learned_gemma12b_paper_v1/train_tasks.json")
+    assert args[args.index("--anymac-training-tasks") + 1].endswith(f"learned_gemma12b_paper_{version}/train_tasks.json")

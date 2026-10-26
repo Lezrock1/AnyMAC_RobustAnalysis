@@ -24,7 +24,7 @@ load_modules
 activate_venv
 regime="${COMPARE_TRAINING_REGIME:-preliminary-v1}"
 case "$regime" in
-  preliminary-v1|paper-aligned-v1) ;;
+  preliminary-v1|paper-aligned-v1|paper-aligned-v2) ;;
   *) echo "Unknown COMPARE_TRAINING_REGIME" >&2; exit 2 ;;
 esac
 base="$RESULTS_DIR/compare/learned_gemma12b_v1"
@@ -35,7 +35,8 @@ assets="$base/assets.json"
 output_base="$RESULTS_DIR/compare/learned_gemma12b_profiles_v2"
 [[ "$system" != gdesigner-paper ]] || output_base="$base"
 paper="$RESULTS_DIR/compare/learned_gemma12b_paper_v1"
-if [[ "$regime" == paper-aligned-v1 ]]; then
+[[ "$regime" != paper-aligned-v2 ]] || paper="$RESULTS_DIR/compare/learned_gemma12b_paper_v2"
+if [[ "$regime" == paper-aligned-* ]]; then
   [[ "$system" != gdesigner-paper ]] || {
     echo "G-Designer already uses the paper's 40x10; retain its original checkpoints." >&2; exit 2; }
   [[ "$profile" != historical-095 ]] || { echo "Paper regime requires normal or efficient" >&2; exit 2; }
@@ -53,9 +54,10 @@ if [[ -n "$bank" || -n "$condition" ]]; then
   [[ "$mode" != smoke ]] || { echo "Use a full frozen training sample for trust conditions, not smoke" >&2; exit 1; }
   output_base="$RESULTS_DIR/compare/trust_gemma12b_v1/$condition"
   [[ "$regime" != paper-aligned-v1 ]] || output_base="$RESULTS_DIR/compare/trust_gemma12b_paper_v1/$condition"
+  [[ "$regime" != paper-aligned-v2 ]] || output_base="$RESULTS_DIR/compare/trust_gemma12b_paper_v2/$condition"
 fi
 reserved=("$RESULTS_DIR/screen/screen_tasks_v1.json" "$RESULTS_DIR/screen/screen_tasks_r2.json" "$eval_tasks")
-if [[ "$regime" == paper-aligned-v1 ]]; then
+if [[ "$regime" == paper-aligned-* ]]; then
   reserved+=("$RESULTS_DIR/compare/main_reserved_v2/eval_tasks.json"
              "$RESULTS_DIR/compare/main_balanced200_v1/eval_tasks.json")
   for f in "${reserved[@]}"; do
@@ -67,7 +69,9 @@ if [[ "$mode" == prepare ]]; then
   # Reserve evaluation BEFORE sampling training. This prepares IDs only, never attack runs.
   [[ -f "$eval_tasks" ]] || bash scripts/compare/study.sh prepare
   if [[ ! -f "$train" ]]; then
-    if [[ "$regime" == paper-aligned-v1 ]]; then
+    if [[ "$regime" == paper-aligned-v2 ]]; then
+      python scripts/compare/train_learned.py prepare --out "$train" --all-validation --trim-trailing-na --reserved "${reserved[@]}" "$dev"
+    elif [[ "$regime" == paper-aligned-v1 ]]; then
       python scripts/compare/train_learned.py prepare --out "$train" --all-validation --reserved "${reserved[@]}" "$dev"
     else
       python scripts/compare/train_learned.py prepare --out "$train" --reserved "${reserved[@]}" "$dev"
@@ -98,12 +102,14 @@ fi
 if [[ -n "$profile" ]]; then
   [[ "$seed" -le 10000 ]] || { echo "seed too large for profile-specific port allocation" >&2; exit 2; }
   port=$((12000 + 3 * seed))
+  [[ "$regime" != paper-aligned-v2 ]] || port=$((16000 + 3 * seed))
   [[ "$profile" != efficient ]] || port=$((port + 1))
   [[ "$profile" != historical-095 ]] || port=$((port + 2))
 fi
 export OLLAMA_PORT="$port" BASE_URL="http://127.0.0.1:$port" OLLAMA_HOST="127.0.0.1:$port"
 export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-8}"
 RAMSES_LOG_DIR="$RAMSES_LOG_DIR/compare_learned/$system/seed$seed"
+[[ "$regime" != paper-aligned-v2 ]] || RAMSES_LOG_DIR="$RAMSES_LOG_DIR/$regime"
 if server_up; then echo "port $port occupied; refusing to reuse a foreign server" >&2; exit 1; fi
 trap stop_ollama EXIT
 start_ollama
@@ -117,13 +123,13 @@ assert any(m["name"]=="gemma4:12b-it-qat" and
 out="$output_base/$label/seed$seed"; purpose=study
 samples=4; lr=0.00001
 [[ "$system" != gdesigner-paper ]] || { samples=10; lr=0.001; }
-[[ "$regime" != paper-aligned-v1 ]] || samples=8
+[[ "$regime" != paper-aligned-* ]] || samples=8
 if [[ "$mode" == smoke ]]; then
   out="$output_base/smoke/$label/seed$seed"
   purpose=runtime-smoke
   mkdir -p "$out"
   sample_base="$base"
-  [[ "$regime" != paper-aligned-v1 ]] || sample_base="$paper"
+  [[ "$regime" != paper-aligned-* ]] || sample_base="$paper"
   python - "$train" "$dev" "$sample_base" <<'PY'
 import json,sys
 from pathlib import Path
@@ -143,7 +149,7 @@ mkdir -p "$output_base/logs"
 echo "mode=$mode system=$system profile=$profile seed=$seed job=$SLURM_JOB_ID commit=$(git rev-parse HEAD)"
 if [[ "$mode" != gate ]]; then
   training_args=(--purpose "$purpose")
-  if [[ "$regime" == paper-aligned-v1 ]]; then
+  if [[ "$regime" == paper-aligned-* ]]; then
     budget=1000
     [[ "$mode" != smoke ]] || budget=4
     training_args+=(--training-regime "$regime" --trajectory-budget "$budget")

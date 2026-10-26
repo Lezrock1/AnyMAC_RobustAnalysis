@@ -135,19 +135,21 @@ def test_main_refuses_old_unreserved_sample(monkeypatch, tmp_path):
         suite.jobs_for(args, {"path": "embed", "sha256": "x"})
 
 
-def test_larger_validation_pool_does_not_rewrite_main_reservation(monkeypatch, tmp_path):
-    from train_learned import DATA_REVISION
+@pytest.mark.parametrize("regime", ["paper-aligned-v1", "paper-aligned-v2"])
+def test_larger_validation_pool_does_not_rewrite_main_reservation(monkeypatch, tmp_path, regime):
+    from train_learned import DATA_REVISION, TRAILING_NA_POLICY
     args = arguments(tmp_path, "main")
     pool = tmp_path / "paper_train.json"
     pool.write_text(json.dumps({
         "selection": "all-eligible-validation", "source": {"split": "validation", "revision": DATA_REVISION},
+        "option_preprocessing": TRAILING_NA_POLICY if regime == "paper-aligned-v2" else "legacy-drop-placeholder-questions",
         "tasks": [{"id": "mmlu_pro/validation/1", "text": "New training question"}]}))
     args.anymac_training_tasks = pool
     def fake(root, system, seed, embedding):
         path, meta = fake_artifact(root, system, seed, embedding)
         meta["training_sha256"] = suite.digest(pool if system.startswith("anymac-") else args.train_tasks)
         meta["config"]["max_workers"] = 5
-        meta.update(training_regime="paper-aligned-v1", trajectory_budget=1000, completed_trajectories=1000,
+        meta.update(training_regime=regime, trajectory_budget=1000, completed_trajectories=1000,
                     samples=8)
         return path, meta
     monkeypatch.setattr(suite, "artifact", fake)
@@ -167,6 +169,13 @@ def test_larger_validation_pool_does_not_rewrite_main_reservation(monkeypatch, t
         meta["completed_trajectories"] = 160
         return path, meta
     monkeypatch.setattr(suite, "artifact", incomplete)
+    with pytest.raises(ValueError, match="budget/config"):
+        suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+    def wrong_regime(*a):
+        path, meta = fake(*a)
+        meta["training_regime"] = "paper-aligned-v1" if regime == "paper-aligned-v2" else "paper-aligned-v2"
+        return path, meta
+    monkeypatch.setattr(suite, "artifact", wrong_regime)
     with pytest.raises(ValueError, match="budget/config"):
         suite.jobs_for(args, {"path": "embed", "sha256": "x"})
     monkeypatch.setattr(suite, "artifact", fake)

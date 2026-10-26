@@ -31,6 +31,14 @@ Diese Entscheidung erfolgte nach Dev-Einsicht, nicht als unveraenderte
 Vorregistrierung. Das erhoehte Budget garantiert weder Konvergenz noch
 Worker-Nutzung oder Angriffsanfaelligkeit.
 
+Nach Pruefung der gepinnten Daten wurde `paper-aligned-v2` freigegeben:
+nachgestellte `N/A`-Auffuelloptionen entfernen statt ganze Fragen verwerfen.
+Damit stehen vor Reservierungsausschluessen 70 Validation-Fragen mit fuenf
+je Thema bereit; v1 liess wegen dieses Filters nur 49 zu. Goldbuchstaben
+bleiben unveraendert. Neue Daten-/Trainings-/Suitepfade und erneute
+Disjunktheitspruefung, keine Konvertierung laufender oder alter Trainings.
+Siehe [Optionskorrektur](./LEARNED_COMPARISON.md#korrektur-nach-pruefung-der-na-optionen-paper-aligned-v2).
+
 ## Zulassungsaenderung nach Dev-Auswertung (26.10.2026)
 
 Explizit mit dem Nutzer beschlossen, **nach** Einsicht in die bekannten zwoelf

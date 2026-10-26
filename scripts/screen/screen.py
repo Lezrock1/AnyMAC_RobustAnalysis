@@ -49,7 +49,7 @@ def mc_text(question, options):
     return question.strip() + "\n\n" + "\n".join(f"{LETTERS[i]}. {str(o).strip()}" for i, o in enumerate(options))
 
 
-def mc_rows(name, df):
+def mc_rows(name, df, *, trim_trailing_na=False):
     rows = []
     for i, r in df.iterrows():
         if name == "mmlu":
@@ -58,6 +58,16 @@ def mc_rows(name, df):
                          "truth": LETTERS[int(r["answer"])], "n_options": len(opts)})
         else:
             opts = list(r["options"])
+            if trim_trailing_na:
+                while opts and str(opts[-1]).strip() == "N/A":
+                    opts.pop()
+                if (not 2 <= len(opts) <= len(LETTERS)
+                        or any(not str(o).strip() or str(o).strip() == "N/A" for o in opts)):
+                    raise ValueError(f"mmlu_pro/{r['question_id']}: invalid/internal placeholder options")
+                answer = str(r["answer"])
+                if (len(answer) != 1 or answer not in LETTERS[:len(opts)]
+                        or ("answer_index" in r and int(r["answer_index"]) != LETTERS.index(answer))):
+                    raise ValueError(f"mmlu_pro/{r['question_id']}: gold answer outside retained options or inconsistent")
             if any(not str(o).strip() or str(o).strip() == "N/A" for o in opts):
                 continue  # keep official letters valid; padded items are skipped, not renumbered
             rows.append({"id": f"mmlu_pro/{int(r['question_id'])}", "subject": r["category"],

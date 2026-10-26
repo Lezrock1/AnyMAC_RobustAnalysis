@@ -42,6 +42,28 @@ def test_mc_rows_keep_official_letters():
     assert screen.mc_rows("mmlu", mmlu)[0]["truth"] == "D"
 
 
+def test_trailing_na_is_opt_in_and_preserves_gold_letters():
+    pro = pd.DataFrame([{"question_id": 1, "category": "law", "question": "q",
+                         "options": ["a", "b", "c", " N/A ", "N/A"], "answer": "C", "answer_index": 2}])
+    assert screen.mc_rows("mmlu_pro", pro) == []
+    rows = screen.mc_rows("mmlu_pro", pro, trim_trailing_na=True)
+    assert rows[0]["truth"] == "C" and rows[0]["n_options"] == 3
+    assert rows[0]["text"] == "q\n\nA. a\nB. b\nC. c"
+    assert list(pro.iloc[0]["options"]) == ["a", "b", "c", " N/A ", "N/A"]
+
+
+@pytest.mark.parametrize("options,answer,index", [
+    (["a", "N/A", "c"], "C", 2), (["a", "", "c"], "C", 2),
+    (["a", "b", "N/A"], "C", 2), (["N/A", "N/A"], "A", 0),
+    (["a", "N/A"], "A", 0), (["a", "b"], "B", 0),
+])
+def test_trimming_refuses_internal_padding_and_invalid_gold(options, answer, index):
+    pro = pd.DataFrame([{"question_id": 1, "category": "law", "question": "q",
+                         "options": options, "answer": answer, "answer_index": index}])
+    with pytest.raises(ValueError, match="mmlu_pro/1"):
+        screen.mc_rows("mmlu_pro", pro, trim_trailing_na=True)
+
+
 def test_end_to_end_with_fake_ollama(tmp_path):
     from aiohttp import web
     import threading

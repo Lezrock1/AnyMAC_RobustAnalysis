@@ -2,6 +2,20 @@
 
 ## New paper-oriented AnyMAC training
 
+**Current regime: `paper-aligned-v2`.** It removes trailing `N/A` padding only,
+preserving real option letters and gold answers. The pinned validation data yield
+70 valid questions (five per subject) before reservation exclusions, rather than
+v1's 49. Preparation prints and freezes a separate exclusion audit.
+Internal placeholders and invalid gold labels/indices fail explicitly.
+Legacy screening/reservation parsing remains unchanged by default.
+Use a fresh worktree and `COMPARE_TRAINING_REGIME=paper-aligned-v2` in **all**
+commands below for the corrected regime. Its data, smoke and training roots are
+`learned_gemma12b_paper_v2`; suite/trust roots also use `_paper_v2`.
+Do not update a running v1 worktree, replace its frozen pool, or resume a v1
+checkpoint as v2. The existing main200 file remains unchanged. Check the new
+preparation audit on Ramses before submitting new GPU jobs. v2 uses different
+ports from v1 and still refuses to reuse any occupied server port.
+
 Use a **new pinned worktree**; do not update any running pilot/training worktree.
 The previous 40x4 AnyMAC runs remain the preliminary budget condition. The explicit
 new regime uses all eligible official validation questions (at most 70), exactly
@@ -15,15 +29,15 @@ From the new worktree, with `ANYMAC_REPO` pointing to the shared configured chec
 
 ```bash
 # Login node: require both already-frozen main reservations; no model episodes.
-COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh prepare
+COMPARE_TRAINING_REGIME=paper-aligned-v2 bash scripts/compare/learned.sh prepare
 
 # Dedicated single-A30 allocation, first smoke both profiles (no passed study gate).
-COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh smoke anymac-normal 0
-COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh smoke anymac-efficient 0
+COMPARE_TRAINING_REGIME=paper-aligned-v2 bash scripts/compare/learned.sh smoke anymac-normal 0
+COMPARE_TRAINING_REGIME=paper-aligned-v2 bash scripts/compare/learned.sh smoke anymac-efficient 0
 
 # Only after smoke inspection, in a dedicated single-A30 allocation:
-COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh train anymac-normal 0
-COMPARE_TRAINING_REGIME=paper-aligned-v1 bash scripts/compare/learned.sh train anymac-efficient 0
+COMPARE_TRAINING_REGIME=paper-aligned-v2 bash scripts/compare/learned.sh train anymac-normal 0
+COMPARE_TRAINING_REGIME=paper-aligned-v2 bash scripts/compare/learned.sh train anymac-efficient 0
 ```
 
 Inspect subject counts in the new frozen training document, `progress.json`,
@@ -38,7 +52,7 @@ After all three seeds and the usual technical/quality checks, select the new
 roots explicitly for the future pilot/plan:
 
 ```bash
-COMPARE_TRAINING_REGIME=paper-aligned-v1 \
+COMPARE_TRAINING_REGIME=paper-aligned-v2 \
 COMPARE_ROUTING_ADMISSION=routing-observation-20261026 \
   bash scripts/compare/suite.sh plan pilot
 ```

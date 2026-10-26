@@ -234,7 +234,8 @@ einen separaten Router pro MMLU-Themenbereich. Die gebundene
 hat jedoch insgesamt nur 70 Validation-Fragen. Die bisherigen 40 x 4 =
 160 AnyMAC-Trajektorien waren nur 16 % des Paperbudgets.
 
-Neue, separat gespeicherte Bedingung `paper-aligned-v1`:
+Erste separat gespeicherte Bedingung `paper-aligned-v1`
+(wegen Optionsfilter durch v2 unten abgeloest):
 
 | Parameter | AnyMAC normal und efficient | G-Designer |
 |---|---|---|
@@ -308,6 +309,52 @@ Die Cluster-Vorbereitung muss die tatsaechlich verbleibende Fragenzahl und
 Themenverteilung noch bestaetigen. Zuerst Smoke fuer beide Profile, dann Seed 0
 mit Laufzeit-/Lernverlaufsauswertung, erst danach Seeds 1/2. Keine automatische
 Einreichung und kein automatischer Hauptlauf.
+
+### Korrektur nach Pruefung der N/A-Optionen: `paper-aligned-v2`
+
+Die Ramses-Vorbereitung von v1 ergab 49 Fragen. Die anschliessende direkte
+Pruefung der gepinnten Parquet-Datei zeigt: **alle 21 weiteren Fragen** wurden
+vom alten Optionsfilter verworfen. Sie enthalten insgesamt 51 `N/A`-Eintraege,
+saemtlich am Ende der Optionslisten; kein Goldbuchstabe verweist darauf.
+Die 49 ausgegebenen Fragen entsprechen bereits dem gesamten Optionsfilter-
+Ergebnis; Reservierungspruefungen entfernten dort keine weitere Frage.
+Die fruehere Erklaerung, die Reduktion liege an Evaluation-Ueberschneidungen,
+war damit falsch.
+
+Mit ausdruecklicher Nutzerfreigabe entfernt v2 ausschliesslich **nachgestellte
+`N/A`-Eintraege**, nicht die ganze Frage. Echte Optionen und ihre offiziellen
+Buchstaben bleiben unveraendert. Interne Platzhalter, leere echte Optionen,
+weniger als zwei echte Optionen sowie ungueltige oder inkonsistente
+Goldbuchstaben/Indizes erzeugen einen expliziten Fehler, kein stilles
+Umnummerieren oder Verwerfen. Der
+[offizielle MMLU-Pro-Evaluator](https://github.com/TIGER-AI-Lab/MMLU-Pro/blob/main/evaluate_from_local.py)
+entfernt ebenfalls `N/A` vor dem Promptaufbau. Unsere Beschraenkung auf
+nachgestellte Platzhalter verhindert zusaetzlich eine unbemerkte Verschiebung.
+
+Lokal an echten Daten verifiziert: **70 Fragen, 14 Themen x 5**, alle bisherigen
+49 geparsten Fragen unveraendert. Die neuen 21 muessen auf Ramses noch gegen
+alle dortigen Reservierungen geprueft werden; erst dann steht die endgueltige
+Trainingszahl fest. Die Vorbereitung schreibt eine `preparation_audit` mit
+Rohzahl, bereinigten Fragen/Optionszahlen, eindeutigen Ausschluessen,
+betroffenen IDs je Reservierungsdatei und Endzahl sowie die Themenverteilung.
+Ein Ausschluss kann mehrere Dateien betreffen; die Einzelzahlen nicht addieren.
+
+`COMPARE_TRAINING_REGIME=paper-aligned-v2` verwendet ausschliesslich neue Pfade:
+`learned_gemma12b_paper_v2`, `trust_gemma12b_paper_v2` und
+`five_condition_gemma12b_paper_v2` (ggf. `_routing`). Die restlichen
+Trainingsparameter bleiben: genau 1000 Trajektorien, Achtergruppen,
+hoechstens fuenf Workeraufrufe, Dev-Diagnosen alle 200 Trajektorien.
+Die Suite prueft den zur Optionsverarbeitung passenden Trainingsregime-Namen.
+Smoke und Training verwenden neue Serverports 16000 + 3*Seed (Efficient +1).
+
+Historische Screening-/Reservierungsaufrufe behalten standardmaessig den alten
+Loader-Modus; die Bereinigung ist ausdrueckliches Opt-in fuer die neue
+Trainingsvorbereitung. **Keine alten Samples, Checkpoints, laufenden Jobs oder
+die 200 Hauptfragen werden konvertiert/ueberschrieben.** Alte Worktrees muessen
+gepinnt bleiben. Auch v1-Trainings lassen sich nicht als v2 fortsetzen.
+G-Designer behaelt weiterhin seinen urspruenglichen 40-Fragen-Pool und alle
+drei vorhandenen Checkpoints. Kein Neustart ohne neue Datenvorbereitung und
+Smoke; kein automatischer Abbruch alter Jobs.
 
 ## 3. Entscheidungsschranken
 

@@ -409,6 +409,43 @@ def test_runner_requires_bound_learned_artifacts():
         runner.learned_system(args)
 
 
+def test_prepare_trims_padding_and_reports_overlaps_without_overwriting(tmp_path, monkeypatch):
+    import pandas as pd
+    import huggingface_hub
+    from scripts.screen.screen import mc_rows
+    parquet = tmp_path / "validation.parquet"
+    frame = pd.DataFrame([
+        {"question_id": i, "category": f"subject{i % 2}", "question": f"Q {i}",
+         "options": ["one", "two", "three", "N/A", "N/A"], "answer": "C", "answer_index": 2}
+        for i in range(6)])
+    frame.to_parquet(parquet)
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", lambda *a, **k: str(parquet))
+    cleaned = mc_rows("mmlu_pro", frame, trim_trailing_na=True)
+    first = dict(cleaned[0], id="old-eval/0")
+    by_text = tmp_path / "text_reserved.json"
+    by_text.write_text(json.dumps({"tasks": [dict(first, text=" ".join(first["text"].split()).upper())]}))
+    by_id = tmp_path / "id_reserved.json"
+    by_id.write_text(json.dumps({"tasks": [dict(cleaned[1], id="mmlu_pro/validation/1", text="Other text")]}))
+    out = tmp_path / "new_train.json"
+    args = SimpleNamespace(out=str(out), reserved=[str(by_text), str(by_id)],
+                           all_validation=True, trim_trailing_na=True)
+    training.prepare(args)
+    doc = json.loads(out.read_text())
+    assert len(doc["tasks"]) == 4
+    assert doc["option_preprocessing"] == training.TRAILING_NA_POLICY
+    assert doc["subject_counts"] == {"subject0": 2, "subject1": 2}
+    assert all(t["n_options"] == 3 and t["truth"] == "C" and "N/A" not in t["text"] for t in doc["tasks"])
+    audit = doc["preparation_audit"]
+    assert (audit["raw_questions"], audit["questions_with_trimmed_na"], audit["removed_na_options"]) == (6, 6, 12)
+    assert (audit["after_options"], audit["excluded_overlap_unique"], audit["selected_questions"]) == (6, 2, 4)
+    assert audit["overlap_ids_by_reserved_file"] == {
+        str(by_text): ["mmlu_pro/validation/0"], str(by_id): ["mmlu_pro/validation/1"]}
+    before = out.read_bytes()
+    with pytest.raises(ValueError, match="frozen"):
+        training.prepare(args)
+    assert out.read_bytes() == before
+
+
 def test_embedding_hash_works_under_home_cache_and_ignores_download_metadata(tmp_path):
     path = tmp_path / ".cache/huggingface/model"
     path.mkdir(parents=True)
@@ -463,7 +500,8 @@ def test_interrupted_training_resumes_only_remaining_task(tmp_path, monkeypatch,
                for name, tensor in restarted.policy.state_dict().items())
 
 
-def test_paper_budget_learning_curve_and_resume_at_milestone(tmp_path, monkeypatch):
+@pytest.mark.parametrize("regime", training.PAPER_REGIMES)
+def test_paper_budget_learning_curve_and_resume_at_milestone(tmp_path, monkeypatch, regime):
     class Policy(torch.nn.Module):
         def __init__(self):
             super().__init__()
@@ -476,6 +514,8 @@ def test_paper_budget_learning_curve_and_resume_at_milestone(tmp_path, monkeypat
     train_file.write_text(json.dumps({
         "tasks": [dict(TASK, id="mmlu_pro/validation/1", text="Training only")],
         "selection": "all-eligible-validation",
+        "option_preprocessing": (training.TRAILING_NA_POLICY if regime == "paper-aligned-v2"
+                                 else "legacy-drop-placeholder-questions"),
         "source": {"split": "validation", "revision": training.DATA_REVISION}}))
     dev_file.write_text(json.dumps({"tasks": [dict(TASK, id="dev/1", text="Development only")]}))
     reserved.write_text('{"tasks":[]}')
@@ -483,7 +523,7 @@ def test_paper_budget_learning_curve_and_resume_at_milestone(tmp_path, monkeypat
                            tasks=str(train_file), dev_tasks=str(dev_file), reserved=[str(reserved)],
                            out=str(tmp_path / "out"), backbone=None, embedding_model="fake",
                            lr=1e-4, max_calls=32, purpose="study", anymac_profile="normal",
-                           training_regime="paper-aligned-v1", trajectory_budget=1000)
+                           training_regime=regime, trajectory_budget=1000)
     calls, evaluations = [], []
     row = score(run(system_for("anymac-corrected")), TASK)
 
@@ -518,6 +558,10 @@ def test_paper_budget_learning_curve_and_resume_at_milestone(tmp_path, monkeypat
     assert set(curve) == {"200", "400", "600", "800", "1000"}
     assert evaluations.count("dev_budget_200.jsonl") == 1
     assert metadata["epochs"] is None
+    args.training_regime = "paper-aligned-v2" if regime == "paper-aligned-v1" else "paper-aligned-v1"
+    with pytest.raises(ValueError, match="option preprocessing"):
+        training.train(args, LLM(), Embeddings(), config(args.system), Policy())
+    args.training_regime = regime
     # Changed budget/source cannot silently resume a frozen output.
     args.trajectory_budget = 1008
     with pytest.raises(ValueError, match="exactly 1000"):

@@ -38,18 +38,21 @@ args=("$command" --phase "$phase" --learned-root "$RESULTS_DIR/compare/learned_g
       --train-tasks "$learned/train_tasks.json"
       --reserved "${reserved[@]}"
       --out "$output")
-case "${COMPARE_TRAINING_REGIME:-preliminary-v1}" in
+regime="${COMPARE_TRAINING_REGIME:-preliminary-v1}"
+case "$regime" in
   preliminary-v1) ;;
-  paper-aligned-v1)
-    output="$RESULTS_DIR/compare/five_condition_gemma12b_paper_v1"
+  paper-aligned-v1|paper-aligned-v2)
+    version="${regime#paper-aligned-}"
+    paper="$RESULTS_DIR/compare/learned_gemma12b_paper_$version"
+    output="$RESULTS_DIR/compare/five_condition_gemma12b_paper_$version"
     ((amended == 0)) || output="${output}_routing"
     args=("$command" --phase "$phase"
-          --learned-root "$RESULTS_DIR/compare/learned_gemma12b_paper_v1"
+          --learned-root "$paper"
           --assets "$learned/assets.json" --gdesigner-root "$learned"
           --dev-tasks "$RESULTS_DIR/compare/gemma12b_preflight_v1/dev_tasks.json"
           --eval-tasks "$RESULTS_DIR/compare/main_balanced200_v1/eval_tasks.json"
           --train-tasks "$learned/train_tasks.json"
-          --anymac-training-tasks "$RESULTS_DIR/compare/learned_gemma12b_paper_v1/train_tasks.json"
+          --anymac-training-tasks "$paper/train_tasks.json"
           --reserved "${reserved[@]}" --out "$output")
     ;;
   *) echo "Unknown COMPARE_TRAINING_REGIME" >&2; exit 2 ;;

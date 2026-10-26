@@ -63,8 +63,12 @@ def jobs_for(args, embedding):
     training_files = [args.train_tasks] + ([training_pool] if training_pool else [])
     task_list = load_tasks(tasks, reserved=[*args.reserved, *training_files])
     if training_pool:
-        from train_learned import DATA_REVISION
+        from train_learned import DATA_REVISION, TRAILING_NA_POLICY
         pool_doc = json.loads(Path(training_pool).read_text())
+        preprocessing = pool_doc.get("option_preprocessing", "legacy-drop-placeholder-questions")
+        if preprocessing not in ("legacy-drop-placeholder-questions", TRAILING_NA_POLICY):
+            raise ValueError("unrecognized training pool option preprocessing")
+        expected_regime = "paper-aligned-v2" if preprocessing == TRAILING_NA_POLICY else "paper-aligned-v1"
         if (pool_doc.get("selection") != "all-eligible-validation"
                 or pool_doc.get("source", {}).get("split") != "validation"
                 or pool_doc.get("source", {}).get("revision") != DATA_REVISION):
@@ -102,7 +106,7 @@ def jobs_for(args, embedding):
                 if meta["training_sha256"] != digest(expected_file):
                     raise ValueError(f"wrong training sample for paper-oriented suite: {checkpoint}")
                 if system.startswith("anymac-") and (
-                        meta.get("training_regime") != "paper-aligned-v1"
+                        meta.get("training_regime") != expected_regime
                         or meta.get("trajectory_budget") != 1000
                         or meta.get("completed_trajectories") != 1000
                         or meta.get("samples") != 8 or meta["config"].get("max_workers") != 5):
