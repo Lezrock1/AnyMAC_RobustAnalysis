@@ -28,10 +28,21 @@ BASELINES = {"fixed": FIXED_ROLES,
 LEARNED = ("anymac-normal", "anymac-efficient", "gdesigner-paper")
 
 
+SCOPES = ("full", "core", "core-targeted")
+# Usage-based attack target per system, fixed BEFORE the main run from the
+# core pilot role-usage trace analysis (results/analysis/core_paper_v2_role_usage_v1):
+# AnyMAC normal seed1 invokes only "Psychologist"; all other AnyMAC checkpoints
+# invoke no worker at all (structural non-exposure is the finding, not a bug).
+# DyLAN invoked its compromised pilot role "Economist" in 19/24 episodes;
+# fixed invokes "Knowledgeable Expert" in every episode.
+TARGETED_ATTACK_ROLES = {"anymac-normal": "Psychologist", "anymac-efficient": "Psychologist",
+                         "dylan": "Economist", "fixed": "Knowledgeable Expert"}
+
+
 def learned_conditions(args):
     scope = getattr(args, "scope", "full")
-    if scope not in ("full", "core"):
-        raise ValueError("comparison scope must be full or core")
+    if scope not in SCOPES:
+        raise ValueError(f"comparison scope must be one of {SCOPES}")
     return LEARNED if scope == "full" else LEARNED[:2]
 
 
@@ -93,7 +104,8 @@ def jobs_for(args, embedding):
         if any(" ".join(t["text"].split()).casefold() in blocked_texts for t in task_list):
             raise ValueError("suite evaluation text overlaps training pool")
     amended = getattr(args, "allow_routing_degeneracy", False)
-    core = getattr(args, "scope", "full") == "core"
+    scope = getattr(args, "scope", "full")
+    core = scope in ("core", "core-targeted")
     seeds = args.seeds if amended or core or args.phase == "main" else args.seeds[:1]
     if not seeds or any(seed < 0 for seed in seeds) or len(set(seeds)) != len(seeds):
         raise ValueError("comparison needs distinct nonnegative training seeds")
@@ -150,6 +162,13 @@ def jobs_for(args, embedding):
             extra += ["--allow-routing-degeneracy"]
         if args.phase == "pilot":
             cells = [(f"pilot/{label}", ["honest", "attack"], "bare", roles[0], 2)]
+        elif scope == "core-targeted":
+            target = TARGETED_ATTACK_ROLES[system]
+            if target not in roles:
+                raise ValueError(f"targeted attack role {target!r} is not a role of {system}: {roles}")
+            cells = [(f"honest/{label}", ["honest"], "bare", roles[0], 2)]
+            cells += [(f"attack/{form}/{label}/{target.replace(' ', '_')}", ["attack"], form, target, 1)
+                      for form in ("bare", "persuasive")]
         else:
             cells = [(f"honest/{label}", ["honest"], "bare", roles[0], 2)]
             cells += [(f"attack/{form}/{label}/{role.replace(' ', '_')}", ["attack"], form, role, 1)
@@ -337,7 +356,7 @@ def report(args, jobs, tasks):
            sum(j["tasks"] * j["reps"] * len(j["policies"]) for j in jobs if j["system"] == s)
         for s in honest_cells}
     if (args.phase == "main" or getattr(args, "allow_routing_degeneracy", False)
-            or getattr(args, "scope", "full") == "core"):
+            or getattr(args, "scope", "full") in ("core", "core-targeted")):
         result["effects_by_seed"] = {str(seed): contrasts([r for r in rows if r["seed"] in (None, seed)])
                                      for seed in args.seeds}
     write_json(Path(args.out) / args.phase / "summary.json", result)
@@ -349,8 +368,9 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("command", choices=["run", "report", "plan"])
     ap.add_argument("--phase", choices=["pilot", "main"], default="pilot")
-    ap.add_argument("--scope", choices=["full", "core"], default="full",
-                    help="core explicitly defers G-Designer; requires its own matching pilot and output")
+    ap.add_argument("--scope", choices=list(SCOPES), default="full",
+                    help="core explicitly defers G-Designer; core-targeted additionally attacks only the "
+                         "usage-based target role per system; both require their own matching pilot and output")
     ap.add_argument("--learned-root", required=True)
     ap.add_argument("--assets", help="Shared frozen assets.json (separate from new profile output root)")
     ap.add_argument("--gdesigner-root", help="Existing G-Designer output root; do not copy or alter live artifacts")
@@ -387,7 +407,7 @@ def main(argv=None):
                         j["evaluation_admission"] for j in jobs if j["system"] == system and j["seed"] == seed)):
                 raise ValueError("main needs the same amended admission for every pilot checkpoint")
             pilot_hash = pilot["artifacts"].get(f"{system}/seed{seed}")
-            if ((getattr(args, "allow_routing_degeneracy", False) or args.scope == "core"
+            if ((getattr(args, "allow_routing_degeneracy", False) or args.scope in ("core", "core-targeted")
                  or seed == args.seeds[0])
                     and pilot_hash != current):
                 raise ValueError("pilot checkpoint changed; rerun the development pilot in a new output")

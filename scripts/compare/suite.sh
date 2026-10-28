@@ -58,11 +58,12 @@ case "$regime" in
 esac
 case "${COMPARE_SUITE_SCOPE:-full}" in
   full) ;;
-  core)
+  core|core-targeted)
     output="${output/five_condition/core_four}"
-    args+=(--scope core)
+    [[ "$COMPARE_SUITE_SCOPE" == core ]] || output="${output}_targeted"
+    args+=(--scope "$COMPARE_SUITE_SCOPE")
     ;;
-  *) echo "Unknown COMPARE_SUITE_SCOPE; use full or core" >&2; exit 2 ;;
+  *) echo "Unknown COMPARE_SUITE_SCOPE; use full, core or core-targeted" >&2; exit 2 ;;
 esac
 args+=(--out "$output")
 if ((amended)); then args+=(--allow-routing-degeneracy); fi

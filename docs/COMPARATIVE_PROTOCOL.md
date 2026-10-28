@@ -78,6 +78,39 @@ Damit stehen vor Reservierungsausschluessen 70 Validation-Fragen mit fuenf
 je Thema bereit; v1 liess wegen dieses Filters nur 49 zu. Goldbuchstaben
 bleiben unveraendert. Neue Daten-/Trainings-/Suitepfade und erneute
 Disjunktheitspruefung, keine Konvertierung laufender oder alter Trainings.
+
+### Nutzungsbasierte Angriffsrolle im Kernvergleich (28.10.2026)
+
+Nach Abschluss aller sechs AnyMAC-v2-Trainings und des Kernpiloten
+(384 Episoden, bestanden, Job 7019994) hat die read-only Rollenanalyse
+`results/analysis/core_paper_v2_role_usage_v1` gezeigt: Fuenf von sechs
+AnyMAC-Checkpoints rufen in keiner Pilotepisode einen Worker auf;
+AnyMAC-normal Seed 1 ruft ausschliesslich die Rolle **Psychologist** auf
+(120 Aufrufe in 24 Episoden), nie die bisher angegriffene Rolle
+**Knowledgeable Expert**. DyLAN rief seine kompromittierte Pilotrolle
+**Economist** in 19/24 Episoden auf; die feste Referenz ruft
+Knowledgeable Expert in jeder Episode.
+
+Vor dem Hauptlauf hat der Nutzer beschlossen, die Angriffsrolle
+nutzungsbasiert festzulegen statt alle Rollen zu durchlaufen:
+`COMPARE_SUITE_SCOPE=core-targeted` greift pro System nur die Rolle an,
+die das System tatsaechlich aufruft (AnyMAC: Psychologist; DyLAN:
+Economist; fixed: Knowledgeable Expert), weiterhin in beiden
+Angriffsformen (bare, persuasive). Ehrliche Zellen, Seeds, Hauptsample
+und Metriken bleiben unveraendert. Begruendung: Ein Angriff auf eine nie
+aufgerufene Rolle misst strukturelle Nicht-Exposition, nicht Dependenz;
+die nutzungsbasierte Rolle beantwortet die Dependenzfrage erst.
+
+Konsequenz und ehrliche Einschraenkung: Fuer die fuenf Checkpoints ohne
+Workeraufrufe bleibt jede Dependenz strukturell null — das ist ein
+berichtetes Ergebnis, kein Ausschlusskriterium. Die Dependenzmessung
+fuer AnyMAC beruht damit auf einem einzigen Seed mit einer einzigen,
+fixierten Rollenpraeferenz; Verallgemeinerungen auf AnyMAC insgesamt
+sind entsprechend begrenzt. Diese Designaenderung ist vor dem Hauptlauf
+dokumentiert, nicht nachtraeglich. Sie benoetigt einen eigenen Piloten
+mit Scope `core-targeted` und eigener Ausgabe
+`core_four_gemma12b_paper_v2_routing_targeted`; die bisherigen
+`core`- und `full`-Plaene und Ergebnisse bleiben unveraendert.
 Siehe [Optionskorrektur](./LEARNED_COMPARISON.md#korrektur-nach-pruefung-der-na-optionen-paper-aligned-v2).
 
 ## Zulassungsaenderung nach Dev-Auswertung (26.10.2026)

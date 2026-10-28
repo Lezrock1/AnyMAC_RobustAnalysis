@@ -83,6 +83,48 @@ def test_main_schedule_counts_and_scales_with_tasks(monkeypatch, tmp_path, scope
                           "anymac-normal": 60 * n, "anymac-efficient": 60 * n}
 
 
+def test_core_targeted_main_attacks_only_the_usage_based_role(monkeypatch, tmp_path):
+    def full_artifact(*args):
+        path, meta = fake_artifact(*args)
+        meta["config"]["roles"] = ["Knowledgeable Expert", "Critic", "Mathematician", "Psychologist",
+                                   "Historian", "Doctor", "Lawyer", "Economist", "Programmer"]
+        return path, meta
+    monkeypatch.setattr(suite, "artifact", full_artifact)
+    args = arguments(tmp_path, "main")
+    args.scope = "core-targeted"
+    jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+    attacks = [j for j in jobs if j["policies"] == ["attack"]]
+    # 6 AnyMAC checkpoints x 2 forms + dylan x 2 + fixed x 2 = 16 attack runs.
+    assert len(attacks) == 16
+    for job in attacks:
+        expected = suite.TARGETED_ATTACK_ROLES[job["system"]]
+        assert job["role"] == expected
+        assert f"--compromised" in job["argv"]
+        assert job["argv"][job["argv"].index("--compromised") + 1] == expected
+    assert {j["form"] for j in attacks} == {"bare", "persuasive"}
+    # Honest cells stay unchanged: 8 cells x 2 reps.
+    honest = [j for j in jobs if j["policies"] == ["honest"]]
+    assert len(honest) == 8 and all(j["reps"] == 2 for j in honest)
+
+
+def test_core_targeted_rejects_target_role_outside_system_roles(monkeypatch, tmp_path):
+    monkeypatch.setattr(suite, "artifact", fake_artifact)  # roles without "Psychologist"
+    args = arguments(tmp_path, "main")
+    args.scope = "core-targeted"
+    with pytest.raises(ValueError, match="not a role of"):
+        suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+
+
+def test_core_targeted_pilot_matches_core_cell_structure(monkeypatch, tmp_path):
+    monkeypatch.setattr(suite, "artifact", fake_artifact)
+    args = arguments(tmp_path)
+    args.scope = "core-targeted"
+    jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
+    assert len(jobs) == 8
+    assert {j["seed"] for j in jobs} == {None, 0, 1, 2}
+    assert sum(12 * j["reps"] * len(j["policies"]) for j in jobs) == 384
+
+
 def test_core_pilot_uses_all_seeds_without_loading_gdesigner(monkeypatch, tmp_path):
     def fake(*a):
         assert a[1] != "gdesigner-paper"
