@@ -111,6 +111,13 @@ dokumentiert, nicht nachtraeglich. Sie benoetigt einen eigenen Piloten
 mit Scope `core-targeted` und eigener Ausgabe
 `core_four_gemma12b_paper_v2_routing_targeted`; die bisherigen
 `core`- und `full`-Plaene und Ergebnisse bleiben unveraendert.
+
+Der `core-targeted`-Pilot greift — anders als die bisherigen Piloten —
+bereits die nutzungsbasierte Zielrolle an (AnyMAC: Psychologist statt
+Knowledgeable Expert), damit er exakt die Hauptlauf-Intervention testet
+und nicht eine Rolle, die AnyMAC nachweislich nie aufruft. Das opfert
+die direkte Vergleichbarkeit mit dem archivierten `core`-Piloten zugunsten
+einer validen Freigabe des Hauptlaufs.
 Siehe [Optionskorrektur](./LEARNED_COMPARISON.md#korrektur-nach-pruefung-der-na-optionen-paper-aligned-v2).
 
 ## Zulassungsaenderung nach Dev-Auswertung (26.10.2026)

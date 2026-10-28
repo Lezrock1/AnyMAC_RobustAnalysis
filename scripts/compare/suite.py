@@ -161,7 +161,12 @@ def jobs_for(args, embedding):
         if checkpoint and amended:
             extra += ["--allow-routing-degeneracy"]
         if args.phase == "pilot":
-            cells = [(f"pilot/{label}", ["honest", "attack"], "bare", roles[0], 2)]
+            # core-targeted pilots must exercise the exact main-run intervention
+            # (usage-based target role), not a role the system never invokes.
+            pilot_role = TARGETED_ATTACK_ROLES[system] if scope == "core-targeted" else roles[0]
+            if pilot_role not in roles:
+                raise ValueError(f"pilot attack role {pilot_role!r} is not a role of {system}: {roles}")
+            cells = [(f"pilot/{label}", ["honest", "attack"], "bare", pilot_role, 2)]
         elif scope == "core-targeted":
             target = TARGETED_ATTACK_ROLES[system]
             if target not in roles:

@@ -115,14 +115,32 @@ def test_core_targeted_rejects_target_role_outside_system_roles(monkeypatch, tmp
         suite.jobs_for(args, {"path": "embed", "sha256": "x"})
 
 
-def test_core_targeted_pilot_matches_core_cell_structure(monkeypatch, tmp_path):
-    monkeypatch.setattr(suite, "artifact", fake_artifact)
+def test_core_targeted_pilot_attacks_the_usage_based_role(monkeypatch, tmp_path):
+    def full_artifact(*args):
+        path, meta = fake_artifact(*args)
+        meta["config"]["roles"] = ["Knowledgeable Expert", "Critic", "Mathematician", "Psychologist",
+                                   "Historian", "Doctor", "Lawyer", "Economist", "Programmer"]
+        return path, meta
+    monkeypatch.setattr(suite, "artifact", full_artifact)
     args = arguments(tmp_path)
     args.scope = "core-targeted"
     jobs, _ = suite.jobs_for(args, {"path": "embed", "sha256": "x"})
     assert len(jobs) == 8
     assert {j["seed"] for j in jobs} == {None, 0, 1, 2}
     assert sum(12 * j["reps"] * len(j["policies"]) for j in jobs) == 384
+    # The pilot must exercise the exact main-run intervention role per system.
+    for job in jobs:
+        expected = suite.TARGETED_ATTACK_ROLES[job["system"]]
+        assert job["role"] == expected
+        assert job["argv"][job["argv"].index("--compromised") + 1] == expected
+
+
+def test_core_targeted_pilot_rejects_missing_target_role(monkeypatch, tmp_path):
+    monkeypatch.setattr(suite, "artifact", fake_artifact)  # roles without "Psychologist"
+    args = arguments(tmp_path)
+    args.scope = "core-targeted"
+    with pytest.raises(ValueError, match="not a role of"):
+        suite.jobs_for(args, {"path": "embed", "sha256": "x"})
 
 
 def test_core_pilot_uses_all_seeds_without_loading_gdesigner(monkeypatch, tmp_path):
