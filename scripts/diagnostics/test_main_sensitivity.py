@@ -8,11 +8,12 @@ from main_sensitivity import backend_error_tasks, exposure, sensitivity
 
 
 def row(system, seed, task, policy, form="bare", outcome="wrong_other", target_hit=False, invoked=0,
-        delivered_any=False, aggregator_exposed=False, final_from_compromised=False, rep=1):
+        delivered_any=False, aggregator_exposed=False, final_from_compromised=False, rep=1,
+        delivered=None):
     return {"system": system, "seed": seed, "task_id": task, "policy": policy, "form": form, "rep": rep,
             "outcome": outcome, "correct": outcome == "correct", "target_hit": target_hit, "invoked": invoked,
             "delivered_any": delivered_any, "aggregator_exposed": aggregator_exposed,
-            "final_from_compromised": final_from_compromised}
+            "final_from_compromised": final_from_compromised, "delivered": delivered or {}}
 
 
 def test_backend_error_tasks_cover_every_cell_and_policy():
@@ -49,3 +50,15 @@ def test_dropping_error_tasks_changes_the_effect_only_through_those_tasks():
     full = out["all"]["0"]["fixed/bare"]["correct"]["mean"]
     reduced = out["without_backend_error_tasks"]["0"]["fixed/bare"]["correct"]["mean"]
     assert full == 0.25 and reduced == 0.0  # one task of four contributes +1; bounded by 1 / n tasks
+
+
+def test_exposure_counts_compromised_copies_inside_the_aggregator_request():
+    rows = [row("anymac-normal", 1, "t1", "attack", invoked=5, delivered_any=True, aggregator_exposed=True,
+                delivered={"aggregator": 5, "worker": 4}),
+            row("anymac-normal", 1, "t2", "attack", invoked=5, delivered_any=True, aggregator_exposed=True,
+                delivered={"aggregator": 1}),
+            row("anymac-normal", 1, "t3", "attack", invoked=5, delivered_any=True, delivered={"worker": 2})]
+    e = exposure(rows)["anymac-normal/seed1/bare"]
+    assert e["mean_compromised_calls"] == 5.0
+    assert e["aggregator_copies"] == {"0": 1, "1": 1, "5": 1}
+    assert e["mean_aggregator_copies"] == 2.0

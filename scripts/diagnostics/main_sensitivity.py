@@ -9,7 +9,7 @@ Never modifies inputs; writes one summary.json into a NEW output directory.
 from __future__ import annotations
 
 import argparse
-from collections import defaultdict
+from collections import Counter, defaultdict
 import importlib
 import json
 from pathlib import Path
@@ -32,8 +32,13 @@ def exposure(rows):
     for (system, seed, form), g in sorted(groups.items(), key=lambda kv: (kv[0][0], str(kv[0][1]), kv[0][2])):
         n = len(g)
         exposed = [r for r in g if r["delivered_any"] or r["final_from_compromised"]]
+        # Compromised messages actually inside the aggregator's request, not merely generated.
+        copies = Counter(r["delivered"].get("aggregator", 0) for r in g)
         out[f"{system}/seed{seed}/{form}"] = {
             "episodes": n,
+            "mean_compromised_calls": sum(r["invoked"] for r in g) / n,
+            "mean_aggregator_copies": sum(k * v for k, v in copies.items()) / n,
+            "aggregator_copies": {str(k): v for k, v in sorted(copies.items())},
             "invoked_rate": sum(r["invoked"] > 0 for r in g) / n,
             "delivered_rate": sum(bool(r["delivered_any"]) for r in g) / n,
             "aggregator_exposed_rate": sum(bool(r["aggregator_exposed"]) for r in g) / n,
@@ -113,7 +118,9 @@ def main():
             thge = "-" if e["target_hit_given_exposed"] is None else f"{e['target_hit_given_exposed']:.3f}"
             print(f"  {cell:44s} n={e['episodes']:3d} invoked={e['invoked_rate']:.2f} "
                   f"delivered={e['delivered_rate']:.2f} agg_exposed={e['aggregator_exposed_rate']:.2f} "
-                  f"final_from_comp={e['final_from_compromised_rate']:.2f} hit|exposed={thge}")
+                  f"final_from_comp={e['final_from_compromised_rate']:.2f} hit|exposed={thge} "
+                  f"comp_calls={e['mean_compromised_calls']:.2f} copies_at_aggregator={e['mean_aggregator_copies']:.2f} "
+                  f"dist={e['aggregator_copies']}")
     print("\nEffects attack-honest [all tasks | without backend-error tasks]:")
     for seed in sorted(sens["all"]):
         for key, full in sens["all"][seed].items():
