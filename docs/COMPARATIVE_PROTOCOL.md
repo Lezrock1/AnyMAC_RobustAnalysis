@@ -118,6 +118,40 @@ Knowledgeable Expert), damit er exakt die Hauptlauf-Intervention testet
 und nicht eine Rolle, die AnyMAC nachweislich nie aufruft. Das opfert
 die direkte Vergleichbarkeit mit dem archivierten `core`-Piloten zugunsten
 einer validen Freigabe des Hauptlaufs.
+
+### Abweichungen im Hauptlauf `core_four_gemma12b_paper_v2_routing_targeted` (30.10.2026)
+
+Alle 24 Laeufe (6400 Episoden) wurden vollstaendig ausgefuehrt und `main/summary.json`
+liegt vor. Drei Abweichungen vom Plan sind festzuhalten; keine Episode wurde
+wiederholt, ersetzt oder nachtraeglich ausgeschlossen.
+
+1. **Ehrliches Qualitaets-Gate nicht bestanden (`passed: false`).** Das Gate verlangt
+   null Backend-Fehler. Es gab 8 Backend-Fehler in 2800 ehrlichen Episoden (0,29 %):
+   `fixed` 2, `dylan` 4, `anymac-normal/seed1` 2; in Angriffszellen weitere 2 (`dylan`).
+   Alle uebrigen Pruefungen (Format, Trunkierung, Genauigkeit >= 0,30, Kontrollfehler,
+   Budget) bestehen. Die Fehler betreffen nur drei Aufgaben (`mmlu_pro/9449`, `4204`,
+   `4175`) und sind reproduzierbar: beide Wiederholungen scheitern (Ursachen:
+   `context capacity reached` nach rund 700 s, `token repeat limit reached`). Sie sind
+   Systemverhalten bei diesen Aufgaben, kein Infrastrukturausfall. Das Gate wurde nicht
+   gelockert. Die Sensitivitaetsanalyse `scripts/diagnostics/main_sensitivity.py`
+   rechnet alle Effekte zusaetzlich ohne diese drei Aufgaben: Zieluebernahme- und
+   Genauigkeitseffekte aendern sich um hoechstens 0,008 (Ausgabe
+   `results/analysis/core_targeted_main_sensitivity_v1`).
+2. **Jobablauf.** Job 7036172 endete nach 24 h mit `TIMEOUT` (9 Zellen fertig); der
+   Resume-Job 7045871 setzte fort, schrieb alle Ergebnisse und endete mit `FAILED`,
+   ausschliesslich wegen des Gates in Punkt 1 (der anschliessende zweite
+   `report main`-Aufruf lief deshalb nicht; `summary.json` existiert bereits).
+3. **Laufzeit- und Budgetueberschreitung.** Die Pilotschaetzung betrug 33,6 GPU-Stunden
+   (42,1 mit 25 % Marge). Allokiert wurden rund 48 GPU-Stunden (Job 7036172, 2 GPUs x 24 h)
+   plus rund 18,6 (Job 7045871, 2 GPUs x 9,3 h), zusammen rund 67, also rund 60 % ueber
+   der Schaetzung mit Marge. Ehrliche Decider-only-Episoden dauerten im Hauptlauf rund
+   19 bis 21 s statt 5,8 s im Piloten. Die Ursache ist nicht geklaert. Die 60-GPU-Stunden-Kappe im
+   Startskript pruefte nur die Schaetzung, nicht die Laufzeit. Pilot-Extrapolationen
+   unterschaetzten die Hauptlaufkosten deutlich.
+
+Die Effektzahlen dieses Laufs sind durch diese Abweichungen nicht verfaelscht,
+muessen aber mit ihnen berichtet werden. Die Decider-only-Checkpoints sind
+Pseudo-Replikationen desselben Verhaltens (siehe Hinweis in `main_sensitivity.py`).
 Siehe [Optionskorrektur](./LEARNED_COMPARISON.md#korrektur-nach-pruefung-der-na-optionen-paper-aligned-v2).
 
 ## Zulassungsaenderung nach Dev-Auswertung (26.10.2026)
