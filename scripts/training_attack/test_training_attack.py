@@ -125,6 +125,19 @@ def test_load_rejects_duplicate_ids_before_runner_deduplication(tmp_path):
         common.load_tasks(path)
 
 
+def test_ramses_launcher_uses_allocation_not_forbidden_interactive_batch():
+    directory = Path(__file__).resolve().parent
+    script = (directory / "run.sh").read_text()
+    instructions = (directory / "README.md").read_text()
+    assert "#SBATCH" not in script
+    assert "Start with salloc followed by srun" in script
+    assert "salloc --partition=interactive" in instructions
+    assert "--mem=64G --time=24:00:00" in instructions
+    assert "srun --ntasks=1 --export=ALL" in instructions
+    result = study.subprocess.run(["bash", "-n", str(directory / "run.sh")], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_provenance_rejects_changed_bank(tmp_path):
     path = tmp_path / "bank.json"
     path.write_text("{}")

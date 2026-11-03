@@ -1,19 +1,12 @@
 #!/usr/bin/env bash
-#SBATCH --job-name=trust-short
-#SBATCH --partition=interactive
-#SBATCH --time=24:00:00
-#SBATCH --gres=gpu:a30:2
-#SBATCH --cpus-per-task=16
-#SBATCH --mem=64G
-#SBATCH --output=trust_short_%j.out
-#SBATCH --error=trust_short_%j.err
+# Run as one srun step inside a 24-hour, two-A30 salloc allocation.
 set -euo pipefail
 started="$(date +%s)"
 deadline=$((started + 23 * 3600 + 45 * 60))
 cd "$(dirname "$0")/../.."
 source scripts/ramses/lib.sh
 load_env; load_modules; activate_venv
-: "${SLURM_JOB_ID:?Submit with sbatch on Ramses}"
+: "${SLURM_JOB_ID:?Start with salloc followed by srun on Ramses}"
 : "${CUDA_VISIBLE_DEVICES:?Slurm GPU mask missing}"
 IFS=, read -r -a gpus <<<"$CUDA_VISIBLE_DEVICES"
 ((${#gpus[@]} == 2)) || { echo "Exactly two allocated A30 GPUs required" >&2; exit 1; }

@@ -15,7 +15,7 @@ future use is impossible without intervention.
 
 ## Budget and execution
 
-One Slurm job: two A30, 16 CPUs, 64 GiB, **24 hours = at most 48 allocated GPU-h**.
+One Slurm allocation: two A30, 16 CPUs, 64 GiB, **24 hours = at most 48 allocated GPU-h**.
 Server startup, bank generation, pilot, training, evaluation and cleanup all
 count. The script sets an application deadline at 23:45 after script start;
 Slurm provides the outer hard limit. No chained job, automatic extension or
@@ -86,6 +86,10 @@ general property of AnyMAC or the full factorial trust experiment.
 
 Use a new detached worktree pinned to the tested commit (supplied in chat).
 Do not update the main-evaluation worktree or its hash-bound sources.
+Ramses forbids `sbatch` in the `interactive` partition: use **`salloc` followed
+by one `srun` step**. The rejected batch submission on 2026-11-04 started no study.
+Run this inside `tmux`; the interactive allocation remains attached until the
+study finishes. Do not close that session. Detach with Ctrl-b, then d.
 
 ```bash
 (
@@ -97,8 +101,10 @@ Do not update the main-evaluation worktree or its hash-bound sources.
   git -C "$repo" worktree add --detach "$worktree" "$commit"
   cd "$worktree"
   export ANYMAC_REPO="$repo"
-  sbatch --export=ALL --output="$HOME/trust_short_%j.out" \
-    --error="$HOME/trust_short_%j.err" scripts/training_attack/run.sh
+  salloc --partition=interactive --job-name=trust-short \
+    --gres=gpu:a30:2 --ntasks=1 --cpus-per-task=16 --mem=64G --time=24:00:00 \
+    srun --ntasks=1 --export=ALL --output="$HOME/trust_short_%j.out" \
+      --error="$HOME/trust_short_%j.err" bash scripts/training_attack/run.sh
 )
 ```
 
