@@ -11,6 +11,7 @@ der Läufe nicht ändern. Sie laden Runner und Scoring über `--code` aus dem Wo
 | `role_usage.py` | Welche Worker-Rollen ruft jedes System auf, in welcher Position, wie oft die angegriffene Rolle |
 | `pilot_worker_audit.py` | Worker-Antworten und deren Pfad zur Endantwort (direkte/transitive Vorfahren) für ausgewählte Aufgaben |
 | `main_sensitivity.py` | Hauptlauf: Effekte je Seed mit/ohne Aufgaben mit Backend-Fehler, Exposition und kompromittierte Kopien im Aggregator-Request |
+| `main_deep_dive.py` | Hauptlauf vertieft: Kosten, gepaarte ehrliche Genauigkeit, Rauschniveau aus No-op-Zellen, Effekte je Checkpoint, Strata nach ehrlicher Korrektheit mit Übergängen, DyLAN-Konsens/Ranker |
 | `cooperation.py` (+ `.sh`) | Ehrliche Kooperationsdiagnose mit AnyMAC-Prompt, kein Router-Training |
 | `graph_probe.py` | CPU-Wahrscheinlichkeitssonde für G-Designer aus dem eingefrorenen Trainings-Worktree |
 | `reserve_balanced_main.py` | Reserviert eine themenbalancierte Teststichprobe (Standard: 200 Fragen) |
