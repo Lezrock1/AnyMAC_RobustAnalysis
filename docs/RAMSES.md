@@ -1,5 +1,12 @@
 # Robustness-Analyse auf Ramses (Slurm, A30)
 
+> **Archiviert (03.11.2026).** Dieses Dokument beschreibt die frühe Robustheits-Pipeline (`robust/`, Exp. 1–4).
+> `prepare.sh`, `run.sh` und `submit.sh` liegen jetzt unter `archive/legacy-robustness-pipeline/scripts/ramses/`,
+> `configs/profiles/` unter `archive/legacy-robustness-pipeline/configs/`. Lauffähig ist diese Pipeline nur am
+> Git-Tag `pre-cleanup-2026-11-03` (`git checkout pre-cleanup-2026-11-03`).
+> Aktuell gültig bleiben `doctor.sh`, `setup.sh` und `lib.sh`; der aktuelle Vergleichslauf steht in
+> [`scripts/compare/README.md`](../scripts/compare/README.md).
+
 Experimente: 1 gelernte Abhängigkeit, 2 Ursache, 3 Beständigkeit, 4 Verteidigung. Definitionen: `PROTOCOL.md`, Audit: `AUDIT.md`.
 Nur Router (NAP/NCS) wird trainiert; Agenten-LLM (Ollama, Qwen3-4B-Instruct-2507) bleibt eingefroren.
 

@@ -3,7 +3,7 @@
 Status: Entwurf vom 19.10.2026, noch kein eingefrorenes Hauptversuchsprotokoll.
 Dieser Entwurf erweitert den Gegenstand ueber AnyMAC hinaus. Er aendert weder das
 [historische AnyMAC-Protokoll](./PROTOCOL.md) noch bereits gespeicherte Ergebnisse.
-Die [isolierten Folgetests](../scripts/followup/README.md) sind implementiert;
+Die [isolierten Folgetests](../archive/legacy-robustness-pipeline/scripts/followup/README.md) (archiviert) sind implementiert;
 Feste Referenz und DyLAN sind lokal getestet und bestehen laut uebermitteltem
 Ramses-Preflight die ehrlichen Format-/Fehler-/Trunkierungsschranken. Korrigiertes
 AnyMAC und eine qualifizierte G-Designer-Paperrekonstruktion sind lokal implementiert;
@@ -596,7 +596,7 @@ Welche Ebene fuer jeden Adapter sinnvoll ist, wird VOR Hauptauswertung fixiert.
 
 E0 ist kein routeruebergreifendes Hauptergebnis. Ein bestandenes Ein-Schritt-Gate
 beweist keine Lernbarkeit der vollstaendigen AnyMAC-Pipeline.
-Ramses-Start und Wiederaufnahme: [Follow-up-Anleitung](../scripts/followup/README.md).
+Ramses-Start und Wiederaufnahme: [Follow-up-Anleitung](../archive/legacy-robustness-pipeline/scripts/followup/README.md) (archiviert).
 Diese Laeufe koennen mehrere Allokationen benoetigen; 43 Stunden ist ein
 kontrollierter Stopp, keine zugesicherte Gesamtlaufzeit.
 

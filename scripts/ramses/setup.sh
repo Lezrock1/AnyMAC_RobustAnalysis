@@ -59,4 +59,4 @@ PY
   fi
 fi
 "$OLLAMA_BIN" --version || true
-echo "setup finished. Next: scripts/ramses/prepare.sh --profile pilot"
+echo "setup finished. Next: see scripts/compare/README.md (comparison suite) or scripts/screen/README.md"

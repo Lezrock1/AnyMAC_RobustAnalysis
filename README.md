@@ -1,97 +1,35 @@
-# AnyMAC
+# AnyMAC_RobustAnalysis
 
+Masterarbeitscode: Vergleich dynamischer Multi-Agent-Router (AnyMAC normal/efficient, DyLAN, feste
+Referenz; G-Designer vorbereitet, im ersten Hauptlauf zurückgestellt) auf Abhängigkeit von
+kompromittierten Agenten. Alle Systeme laufen mit demselben lokalen Modell (Gemma 4 12B IT QAT über
+Ollama) auf dem Ramses-Cluster (A30). Fork von [SongW-SW/AnyMAC](https://github.com/SongW-SW/AnyMAC).
 
-## Setup Instructions
+## Aufbau
 
-### 1. Install and Run Ollama
+| Pfad | Inhalt |
+|---|---|
+| [`scripts/compare/`](scripts/compare/README.md) | Vergleichsrahmen: Event-Contract, Runner, Training der gelernten Router, Suite (Pilot/Hauptlauf), Angriffe, Scoring. **Quelltext-Hashes binden die Läufe: `*.py` (ohne `test_*`) nicht ändern.** |
+| [`scripts/screen/`](scripts/screen/README.md) | Ehrliches Modell-×-Benchmark-Screening und Datenvorbereitung (MMLU-Pro) |
+| [`scripts/diagnostics/`](scripts/diagnostics/README.md) | Schreibgeschützte Auswertungen abgeschlossener Läufe |
+| `scripts/upstream/` | Minimale Reproduktion der AnyMAC-Router-Indexfehler |
+| `scripts/ramses/` | Cluster-Anbindung (`lib.sh`, `setup.sh`, `doctor.sh`) |
+| [`docs/`](docs/COMPARATIVE_PROTOCOL.md) | Protokolle, Abweichungen, Audit (`COMPARATIVE_PROTOCOL.md` ist maßgeblich) |
+| [`archive/`](archive/README.md) | Frühe Robustheits-Pipeline und Original-Material der AnyMAC-Autoren, eingefroren |
 
-Ollama needs to be installed and running to use local LLMs:
-
-```bash
-# For macOS
-brew install ollama
-
-# For Linux
-curl -fsSL https://ollama.com/install.sh | sh
-```
-
-Start the Ollama server:
-```bash
-ollama serve
-```
-
-Keep this terminal window open while running experiments.
-
-### 2. Run Benchmarks
-
-The benchmark script supports both OpenAI models (gpt-4o, o3-mini) and local models via Ollama.
+## Tests
 
 ```bash
-# Run with default model (deepseek-r1:1.5b-qwen-distill-fp16)
-python experiments/run_llm_benchmark.py
-
-# Run with a specific model
-python experiments/run_llm_benchmark.py --llm_name qwen2.5:1.5b-instruct-fp16
-
-# Run with multiple models
-python experiments/run_llm_benchmark.py --models gpt-4o llama3.2:1b-instruct-fp16 gemma3:1b
-
-# Run with all supported models
-python experiments/run_llm_benchmark.py --all_models
+.venv/bin/python -m pytest scripts/compare scripts/diagnostics scripts/screen -q
 ```
 
-## Supported Models
+`pytest.ini` schließt `archive/` aus. Archivierte Tests laufen nur am Tag `pre-cleanup-2026-11-03`.
 
-### OpenAI Models
-- gpt-4o
-- o3-mini
+## Git-Marken
 
-### Local Models (Ollama)
-- qwen2.5:0.5b-instruct-fp16
-- llama3.2:1b-instruct-fp16
-- qwen2.5:1.5b-instruct-fp16
-- gemma3:1b
-- deepseek-r1:1.5b-qwen-distill-fp16
+- `eval-core-targeted-main-ceb6601`: Code-Stand, der den Hauptlauf `core_four_gemma12b_paper_v2_routing_targeted` ausgeführt hat.
+- `pre-cleanup-2026-11-03`: Zustand vor dem Aufräumen (enthält die ursprüngliche Verzeichnisstruktur).
 
-## Advanced Options
+## Zitation
 
-```bash
-# Set batch size
-python experiments/run_llm_benchmark.py --batch_size 8
-
-# Set number of iterations
-python experiments/run_llm_benchmark.py --num_iterations 20
-
-# Change routing mode
-python experiments/run_llm_benchmark.py --mode DirectAnswer
-```
-
-Available modes:
-- DirectAnswer
-- FullConnected
-- Random
-- Chain
-- Debate
-- Layered
-- Star
-
-## Results
-
-Results are saved in `result/gsm8k/` with filenames that include the model name and timestamp. 
-
-
-## Reference
-
-If you use this repository or its findings of our paper in your research, please cite:
-```
-@inproceedings{wang2025anymac,
-  title={AnyMAC: Cascading Flexible Multi-Agent Collaboration via Next-Agent Prediction},
-  author={Wang, Song and Tan, Zhen and Chen, Zihan and Zhou, Shuang and Chen, Tianlong and Li, Jundong},
-  booktitle={EMNLP 2025},
-  year={2025}
-}
-```
-
-
-## Robustness analysis (fork)
-See [docs/RAMSES.md](docs/RAMSES.md) for Ramses/Slurm instructions, [docs/PROTOCOL.md](docs/PROTOCOL.md) and [docs/AUDIT.md](docs/AUDIT.md).
+Originalarbeit: Wang et al., *AnyMAC: Cascading Flexible Multi-Agent Collaboration via Next-Agent Prediction*, EMNLP 2025.
