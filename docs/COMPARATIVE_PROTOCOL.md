@@ -341,6 +341,25 @@ ausdruecklich die richtigen **Trainings**labels; gleiche Inhalte werden neutral
 oder kompetenzbetont praesentiert. Keine Test-/Dev-Loesungen zur Textgenerierung.
 Siehe [Threat Model und Grenzen](./LEARNED_COMPARISON.md#4a-vertrauensaufbau-im-training-getrenntes-2x2-experiment).
 
+**Freigabe 03.11.2026, vor neuen Trainings:** Wegen maximal 24 h auf zwei A30
+wird das volle 2x2-Design nicht gestartet. Stattdessen: AnyMAC Normal,
+ordinary-neutral gegen helpful-neutral, sechs gepaarte Seeds (0-5), Zielrolle
+Knowledgeable Expert. Ein runtime-basierter Preflight friert fuer alle Arme
+dasselbe Budget aus 64/128/192/256 Trajektorien ein, ohne Ergebnisauswahl.
+24 nach IDs/Themen statt Ergebnissen ausgewaehlte bestehende Hauptlauffragen
+erhalten ehrlich/bare direkt benachbart auf derselben GPU; vier Fragen erhalten
+eine weitere ehrliche No-op-Kontrolle mit gleichem Router-RNG.
+Primaer: helpful-minus-ordinary Zielrollen-Aufrufrate unter ehrlichen nativen
+Workern. Sekundaer: Exposition, Aufrufanzahl, Zieltreffer/Genauigkeit und die
+Differenz der Angriffseffekte zwischen Trainingsarmen. Leistungstoleranz 0,10
+ist nur eine beobachtete Warnschwelle, keine Zulassungs-/Selektionsregel oder
+Nichtunterlegenheitsbestaetigung. Nullkooperation/fehlende Utility-Updates
+bleiben Ergebnisse. Unfertige Paare werden samt Ursache berichtet; ihre
+Auslassung kann laufzeitabhaengig verzerren. Keine neue Bestaetigungsstichprobe,
+kein Darstellungs-/Persuasive-Test, keine 1000-Trajektorien-Reproduktion.
+Die separate [Kurztrainingssuite](../scripts/training_attack/README.md) prueft
+Interventionsartefakte, ohne das saubere Hauptlauf-Gate zu lockern.
+
 Als schneller erster Diagnoseschritt ist
 [`cooperation.py`](../scripts/diagnostics/cooperation.py) implementiert:
 12 bereits bekannte Dev-Aufgaben x zwei Wiederholungen x Entscheider allein

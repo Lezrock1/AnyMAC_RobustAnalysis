@@ -488,6 +488,19 @@ von Ueberzeugungskraft ohne laengenangepasste Kontrolle.
 
 ## 4a. Vertrauensaufbau im Training: getrenntes 2x2-Experiment
 
+**Budget-Aenderung vom 03.11.2026:** Das unten beschriebene volle 2x2-Design
+bleibt unausgefuehrt. Freigegeben ist stattdessen eine explorative Kurzstudie:
+AnyMAC Normal, ordinary-neutral/helpful-neutral, sechs gepaarte Seeds,
+Knowledgeable Expert, ein runtime-basiert eingefrorenes Budget von 64-256
+Trajektorien, 24 bestehende Hauptlaufaufgaben mit benachbarten honest/bare-Laeufen
+auf demselben Server. Eine Allokation von maximal 24 h auf zwei A30 schliesst
+Vorbereitung und Evaluation ein. Primaer ist die ehrliche Zielrollen-Aufrufrate;
+ein beobachteter Leistungsverlust ueber 0,10 ist ein Warnsignal, keine
+Nichtunterlegenheitsbestaetigung oder Selektionsregel. Nullkooperation und
+unvollstaendige Seeds werden berichtet. Kein Nachweis der 1000-Trajektorien-
+Reproduktion, des Darstellungsfaktors oder eines Trainingspopulations-Nulls.
+Details und Ausfuehrung: [Kurztrainingsstudie](../scripts/training_attack/README.md).
+
 Leitfrage: Erzeugen hilfreichere oder kompetenzbetont dargestellte Workerantworten
 eine gelernte Abhaengigkeit, die ein spaeterer Verhaltenswechsel ausnutzen kann?
 

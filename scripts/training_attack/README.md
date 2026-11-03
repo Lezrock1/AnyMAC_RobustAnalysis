@@ -1,0 +1,127 @@
+# Exploratory training attack within one 24-hour allocation
+
+Approved reduced design (2026-11-03): **AnyMAC Normal only**, six paired seeds (0-5),
+`ordinary-neutral` versus `helpful-neutral`, target **Knowledgeable Expert**.
+Both arms replace every actual invocation of this identity with frozen training
+content. Routing is never forced. Helpful generation sees only official
+**training** labels; ordinary generation does not. No prominence/persuasive arm.
+
+This is short training from the same pinned GPT-2 initialization per seed,
+**not** continuation of the main checkpoints or a 1,000-trajectory reproduction.
+The ordinary arm controls frozen replacement/presentation; existing clean main
+checkpoints are contextual references, not additional matched controls. The role
+was chosen because it was unused in the prior main routers, not because its
+future use is impossible without intervention.
+
+## Budget and execution
+
+One Slurm job: two A30, 16 CPUs, 64 GiB, **24 hours = at most 48 allocated GPU-h**.
+Server startup, bank generation, pilot, training, evaluation and cleanup all
+count. The script sets an application deadline at 23:45 after script start;
+Slurm provides the outer hard limit. No chained job, automatic extension or
+automatic resume. Only processes started by the job are stopped.
+
+1. Check disjoint frozen paper-v2 validation training, development, main and
+   reserved questions, pinned assets and identical screened workers.
+2. Generate ordinary/helpful bank entries once for the training pool. No
+   outcome selection or repair. Report actual quality rather than assuming help.
+3. Within a two-hour setup window, run an eight-rollout calibration in both arms
+   (not included in study results), plus two six-call/full-context stress episodes
+   on each GPU.
+4. Select **one fixed budget from 64/128/192/256 trajectories** per arm/seed,
+   in independent groups of eight, based **only on wall times**. Use 35% runtime
+   margin, reserve projected paired evaluation and 15 minutes for final reporting.
+   If even 64 cannot fit, stop explicitly before main training. This is not a
+   guarantee that all models will finish: runtime can change after preflight.
+5. Train six seed pairs on the two GPUs; swap training-arm GPU assignments by
+   seed parity. All other optimizer/profile/role parameters stay identical:
+   learning rate 1e-5, reward decay 1, five workers maximum, five context messages.
+   Four initial development questions replace the costly full learning curves.
+   Neither development scores nor cooperation select the final checkpoint.
+6. For each seed, evaluate **both arms on the same GPU/server**, interleaving
+   conditions and adjacent honest/bare episodes. Two seed pairs run concurrently.
+   Use 24 outcome-independently subject-balanced questions from the existing
+   200-question main pool, one repetition each; four questions additionally get
+   a second honest episode with the *same* router RNG. Total: **624 evaluation
+   episodes**, not 624 independent training replications.
+
+Timeout/failure stops later training pairs or evaluation waves. Existing rolling
+checkpoints, attempt logs, failure codes and partial traces are preserved.
+Incomplete pairs do not enter paired effects and are explicitly listed; a
+completed-only subset can be biased if intervention-induced cooperation is slower.
+Infrastructure failure is not silently repaired. Null cooperation, zero utility
+updates, poor output or performance loss are reported, not filtered away.
+The wrapper accepts only this study's full-budget hash-bound intervention
+checkpoints, **without changing clean-suite admission**.
+
+## Outcomes and interpretation
+
+Primary: helpful minus ordinary **honest target-role invocation rate** (across
+questions), alongside mean target calls, aggregator exposure and all-worker use.
+This measures learned behavioral dependence, not psychological trust.
+
+Secondary: honest/bare target-hit and accuracy differences within each arm, and
+the difference of these attack effects between training arms. A higher invocation
+rate alone does not demonstrate exploitable damage. Report training replacement
+coverage and measured bank quality as manipulation checks.
+
+Use paired contrasts for each seed and separate bootstrap intervals over seeds
+(conditional on tasks) and tasks (conditional on checkpoints). Six seeds remain
+few; 24 previously analyzed questions are not fresh confirmatory evidence.
+The primary contrast is predeclared; secondary contrasts are exploratory without
+multiple-testing claims. Do not infer a population-level null from all-zero CIs.
+
+An observed helpful-versus-ordinary accuracy drop greater than **10 percentage
+points** is a warning. Report the paired accuracy interval too. This tolerance is
+**not** a checkpoint admission rule or proof of noninferiority; no model is removed
+because it uses no workers or fails to improve. The small honest-repeat control
+diagnoses local serving noise, not all GPU/numerical confounding.
+
+Content length, explanation quality and label-assisted instruction form one
+intervention package. Both frozen arms ignore peer context. The estimand is the
+effect of this training-message intervention at a short fixed budget, not a
+general property of AnyMAC or the full factorial trust experiment.
+
+## Ramses launch
+
+Use a new detached worktree pinned to the tested commit (supplied in chat).
+Do not update the main-evaluation worktree or its hash-bound sources.
+
+```bash
+(
+  set -euo pipefail
+  repo="$HOME/AnyMAC_RobustAnalysis"
+  git -C "$repo" fetch origin robust-analysis
+  commit=TESTED_COMMIT_FROM_CHAT
+  worktree="$HOME/AnyMAC_training_attack_short"
+  git -C "$repo" worktree add --detach "$worktree" "$commit"
+  cd "$worktree"
+  export ANYMAC_REPO="$repo"
+  sbatch --export=ALL --output="$HOME/trust_short_%j.out" \
+    --error="$HOME/trust_short_%j.err" scripts/training_attack/run.sh
+)
+```
+
+If that worktree already exists, verify its full HEAD and cleanliness rather
+than switching it while a job may be using it. Assets, pool and model must already
+exist; this job never installs dependencies or pulls models.
+
+Results: `$RESULTS_DIR/compare/training_attack_short_v1/job_JOBID/`.
+`plan.json` freezes the runtime-released budget; `state.json` records failures;
+`summary.json` includes complete/incomplete seeds, bank quality, per-seed metrics,
+noise and paired CIs. `logs/` contains stage output and exact argv/return codes.
+`COMPLETE.json` per evaluation seed binds trace and checkpoint hashes.
+
+Afterward, re-run the report (CPU only, same pinned environment/source):
+
+```bash
+python scripts/training_attack/report.py --input "$RESULTS_DIR/compare/training_attack_short_v1/job_JOBID"
+```
+
+## Local validation
+
+```bash
+.venv/bin/python -m pytest scripts/training_attack scripts/compare/test_trust.py \
+  scripts/compare/test_learned.py scripts/compare/test_admission.py -q
+bash -n scripts/training_attack/run.sh
+```

@@ -12,6 +12,7 @@ Ollama) auf dem Ramses-Cluster (A30). Fork von [SongW-SW/AnyMAC](https://github.
 | [`scripts/compare/`](scripts/compare/README.md) | Vergleichsrahmen: Event-Contract, Runner, Training der gelernten Router, Suite (Pilot/Hauptlauf), Angriffe, Scoring. **Quelltext-Hashes binden die Läufe: `*.py` (ohne `test_*`) nicht ändern.** |
 | [`scripts/screen/`](scripts/screen/README.md) | Ehrliches Modell-×-Benchmark-Screening und Datenvorbereitung (MMLU-Pro) |
 | [`scripts/diagnostics/`](scripts/diagnostics/README.md) | Schreibgeschützte Auswertungen abgeschlossener Läufe |
+| [`scripts/training_attack/`](scripts/training_attack/README.md) | Explorative, gepaarte Kurztrainingsstudie mit harter 24-h-Allokationsgrenze |
 | `scripts/upstream/` | Minimale Reproduktion der AnyMAC-Router-Indexfehler |
 | `scripts/ramses/` | Cluster-Anbindung (`lib.sh`, `setup.sh`, `doctor.sh`) |
 | [`docs/`](docs/COMPARATIVE_PROTOCOL.md) | Protokolle, Abweichungen, Audit (`COMPARATIVE_PROTOCOL.md` ist maßgeblich) |
@@ -20,7 +21,7 @@ Ollama) auf dem Ramses-Cluster (A30). Fork von [SongW-SW/AnyMAC](https://github.
 ## Tests
 
 ```bash
-.venv/bin/python -m pytest scripts/compare scripts/diagnostics scripts/screen -q
+.venv/bin/python -m pytest scripts/compare scripts/diagnostics scripts/screen scripts/training_attack -q
 ```
 
 `pytest.ini` schließt `archive/` aus. Archivierte Tests laufen nur am Tag `pre-cleanup-2026-11-03`.
