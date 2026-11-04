@@ -360,6 +360,21 @@ kein Darstellungs-/Persuasive-Test, keine 1000-Trajektorien-Reproduktion.
 Die separate [Kurztrainingssuite](../scripts/training_attack/README.md) prueft
 Interventionsartefakte, ohne das saubere Hauptlauf-Gate zu lockern.
 
+**Freigegebene Bank-Aenderung 04.11.2026, vor jedem Routertraining:**
+Job 7213910 endete nach 23:53 Minuten vor der Trainingsfreigabe. Alle 140
+Bankantworten lagen vor; helpful fuer validation/30 und ordinary fuer
+validation/40 waren abgeschnitten und nicht parsebar. Beide Aufgaben werden
+in **beiden** Armen ausgeschlossen: 68 statt 70 Trainingsaufgaben, 136
+unveraenderte Texte, alle Themen erhalten. Keine Auswahl nach Korrektheit,
+kein Neusampling oder Reparieren. Weitere Qualitaetsfehler blockieren die
+Uebernahme statt automatisch mehr Aufgaben auszuscheiden. Originale, Hashes,
+Ausschlussgruende und Bankqualitaet vor/nach Ausschluss bleiben dokumentiert.
+Seeds, Zielrolle, Evaluationsfragen und Budgetschema bleiben unveraendert.
+Die Schaetzung ist auf den qualitaetsgefilterten Pool bedingt; moegliche
+Selektion nach Schwierigkeit/Antwortlaenge ist eine Einschraenkung. Der
+Fehlversuch wird mit aufgerundeten 24 Minuten auf das Gesamtbudget angerechnet:
+naechste Allokation maximal 23:36 auf zwei A30, insgesamt hoechstens 48 GPU-h.
+
 Als schneller erster Diagnoseschritt ist
 [`cooperation.py`](../scripts/diagnostics/cooperation.py) implementiert:
 12 bereits bekannte Dev-Aufgaben x zwei Wiederholungen x Entscheider allein

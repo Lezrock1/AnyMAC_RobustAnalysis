@@ -15,16 +15,19 @@ future use is impossible without intervention.
 
 ## Budget and execution
 
-One Slurm allocation: two A30, 16 CPUs, 64 GiB, **24 hours = at most 48 allocated GPU-h**.
+Total budget: two A30, 16 CPUs, 64 GiB, **24 hours = at most 48 allocated GPU-h**,
+including the failed attempt. The approved recovery charges 24 minutes for job
+7213910 (sacct: 23:53) and allows at most **23:36 for the next allocation**.
 Server startup, bank generation, pilot, training, evaluation and cleanup all
-count. The script sets an application deadline at 23:45 after script start;
+count. The script sets an application deadline 15 minutes before its declared allocation limit;
 Slurm provides the outer hard limit. No chained job, automatic extension or
 automatic resume. Only processes started by the job are stopped.
 
 1. Check disjoint frozen paper-v2 validation training, development, main and
    reserved questions, pinned assets and identical screened workers.
-2. Generate ordinary/helpful bank entries once for the training pool. No
-   outcome selection or repair. Report actual quality rather than assuming help.
+2. Initially generate ordinary/helpful entries once. In the approved recovery,
+   import the already generated texts with the paired quality exclusion below;
+   never regenerate or repair. Report actual quality rather than assuming help.
 3. Within a two-hour setup window, run an eight-rollout calibration in both arms
    (not included in study results), plus two six-call/full-context stress episodes
    on each GPU.
@@ -82,9 +85,33 @@ intervention package. Both frozen arms ignore peer context. The estimand is the
 effect of this training-message intervention at a short fixed budget, not a
 general property of AnyMAC or the full factorial trust experiment.
 
-## Ramses launch
+## Approved bank recovery (2026-11-04)
 
-Use a new detached worktree pinned to the tested commit (supplied in chat).
+Job **7213910** failed before any training: all 140 texts were generated, but
+`validation/30` helpful and `validation/40` ordinary were truncated/unparseable.
+The user approved removing **both arms of both tasks**, not selecting correct
+answers or regenerating failed outputs. The new bank retains **68 questions,
+136 unchanged answers**, all original subjects, and every valid wrong answer.
+Evaluation questions, seeds, profile and role remain unchanged.
+
+The importer checks the original complete progress manifest, source, worker,
+task content, reservations, failed stage and the exact approved bad entries.
+Any additional missing/invalid entry blocks recovery; exclusions never expand
+automatically. Original files remain untouched. New task/bank/audit files and
+original evidence hashes enter the new study manifest. Original bank quality is
+recorded alongside retained-bank quality. Training estimates now refer to this
+**quality-filtered pool**; answer length/difficulty-related selection can limit
+generalization. This amendment was approved before any router training.
+
+The failed allocation is charged **24 minutes**, rounded up from sacct 23:53.
+The next allocation is **23:36**, not another 24 hours. The application rejects
+a declared recovery allocation exceeding that remainder before server startup.
+There is no automatic retry; any further failed attempt must be accounted for
+before another allocation is authorized.
+
+## Ramses launch (approved recovery)
+
+Use the existing detached worktree pinned to the tested recovery commit (supplied in chat).
 Do not update the main-evaluation worktree or its hash-bound sources.
 Ramses forbids `sbatch` in the `interactive` partition: use **`salloc` followed
 by one `srun` step**. The rejected batch submission on 2026-11-04 started no study.
@@ -98,24 +125,32 @@ study finishes. Do not close that session. Detach with Ctrl-b, then d.
   git -C "$repo" fetch origin robust-analysis
   commit=TESTED_COMMIT_FROM_CHAT
   worktree="$HOME/AnyMAC_training_attack_short"
-  git -C "$repo" worktree add --detach "$worktree" "$commit"
+  [[ -z "$(git -C "$worktree" status --porcelain)" ]] \
+    || { echo "Worktree is not clean; stop." >&2; exit 1; }
+  git -C "$worktree" checkout --detach "$commit"
   cd "$worktree"
   export ANYMAC_REPO="$repo"
+  export TRAINING_ATTACK_RECOVER_FROM="$repo/results/compare/training_attack_short_v1/job_7213910"
+  export TRAINING_ATTACK_ALLOCATION_SECONDS=84960
   salloc --partition=interactive --job-name=trust-short \
-    --gres=gpu:a30:2 --ntasks=1 --cpus-per-task=16 --mem=64G --time=24:00:00 \
+    --gres=gpu:a30:2 --ntasks=1 --cpus-per-task=16 --mem=64G --time=23:36:00 \
     srun --ntasks=1 --export=ALL --output="$HOME/trust_short_%j.out" \
       --error="$HOME/trust_short_%j.err" bash scripts/training_attack/run.sh
 )
 ```
 
-If that worktree already exists, verify its full HEAD and cleanliness rather
-than switching it while a job may be using it. Assets, pool and model must already
-exist; this job never installs dependencies or pulls models.
+Only switch after confirming the old job is stopped, as it is for 7213910.
+Assets, original progress, pool and model must already exist; this job never
+installs dependencies or pulls models. If results were configured outside the
+repository, point `TRAINING_ATTACK_RECOVER_FROM` to the actual old job directory.
 
 Results: `$RESULTS_DIR/compare/training_attack_short_v1/job_JOBID/`.
 `plan.json` freezes the runtime-released budget; `state.json` records failures;
 `summary.json` includes complete/incomplete seeds, bank quality, per-seed metrics,
 noise and paired CIs. `logs/` contains stage output and exact argv/return codes.
+Failures also copy the last 20 child-log lines into the main stderr log.
+`bank_recovery.json` documents exclusions, original quality and evidence hashes;
+`summary.json` repeats recovery and total-allocation accounting.
 `COMPLETE.json` per evaluation seed binds trace and checkpoint hashes.
 
 Afterward, re-run the report (CPU only, same pinned environment/source):

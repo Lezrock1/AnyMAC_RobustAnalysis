@@ -13,6 +13,7 @@ import common
 import report as reporting
 import study
 import worker
+from bank_recovery import APPROVED_BAD
 import learned
 import train_learned
 import trust
@@ -132,7 +133,8 @@ def test_ramses_launcher_uses_allocation_not_forbidden_interactive_batch():
     assert "#SBATCH" not in script
     assert "Start with salloc followed by srun" in script
     assert "salloc --partition=interactive" in instructions
-    assert "--mem=64G --time=24:00:00" in instructions
+    assert "--mem=64G --time=23:36:00" in instructions
+    assert "TRAINING_ATTACK_ALLOCATION_SECONDS=84960" in instructions
     assert "srun --ntasks=1 --export=ALL" in instructions
     result = study.subprocess.run(["bash", "-n", str(directory / "run.sh")], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
@@ -231,21 +233,22 @@ def test_real_tiny_training_evaluation_and_partial_report(tmp_path, monkeypatch)
         worker.admit(metadata_path.with_suffix(".pt"), plan, plan_path, 0, common.CONDITIONS[0])
 
 
-def test_prepare_keeps_initial_dev_out_of_training_reservations(tmp_path, monkeypatch):
+@pytest.mark.parametrize("recovering", [False, True])
+def test_prepare_keeps_initial_dev_out_of_training_reservations(tmp_path, monkeypatch, recovering):
     base = tmp_path / "results/compare"
     pool = base / "learned_gemma12b_paper_v2/train_tasks.json"
     pool.parent.mkdir(parents=True)
     common.write_json(pool, {
-        "tasks": [task(i, prefix="mmlu_pro/validation/") for i in range(10)],
+        "tasks": [task(i, subject=f"subject{i % 14}", prefix="mmlu_pro/validation/") for i in range(70)],
         "source": {"split": "validation", "revision": study.DATA_REVISION},
         "selection": "all-eligible-validation",
         "option_preprocessing": "trim-trailing-na/preserve-letters/v1"})
     dev = base / "gemma12b_preflight_v1/dev_tasks.json"
     dev.parent.mkdir()
-    document(dev, [task(i) for i in range(10, 20)])
+    document(dev, [task(i) for i in range(100, 110)])
     evaluation = base / "main_balanced200_v1/eval_tasks.json"
     evaluation.parent.mkdir()
-    document(evaluation, [task(i, f"subject{i % 14}") for i in range(20, 70)])
+    document(evaluation, [task(i, f"subject{i % 14}") for i in range(200, 250)])
     for path in ("screen/screen_tasks_v1.json", "screen/screen_tasks_r2.json",
                  "compare/dylan_study_v1/eval_tasks.json", "compare/main_reserved_v2/eval_tasks.json"):
         target = tmp_path / "results" / path
@@ -265,15 +268,42 @@ def test_prepare_keeps_initial_dev_out_of_training_reservations(tmp_path, monkey
     root = tmp_path / "study"
     root.mkdir()
     args = SimpleNamespace(results=str(tmp_path / "results"), model="fake",
-                           urls=["gpu0", "gpu1"], threads=1, started=time.time(), deadline=time.time() + 100)
+                           urls=["gpu0", "gpu1"], threads=1, started=time.time(), deadline=time.time() + 100,
+                           allocation_seconds=86400, recover_from=None)
     plan = study.prepare(args, root)
     assert str(dev) in plan["bank_reserved"] and str(dev) not in plan["reserved"]
     selected_dev = common.load_tasks(plan["dev_tasks"], reserved=plan["reserved"])
     assert len(selected_dev) == 4
     assert len(common.load_tasks(plan["eval_tasks"])) == 24
+    if recovering:
+        source = tmp_path / "job_7213910"
+        source.mkdir()
+        (source / "logs").mkdir()
+        trust.generate(SimpleNamespace(
+            tasks=plan["training_tasks"], reserved=plan["bank_reserved"],
+            role=common.ROLE, out=str(source / "messages.json")), LLM())
+        (source / "messages.json").unlink()
+        progress_path = source / "messages.progress.json"
+        progress = json.loads(progress_path.read_text())
+        for tid, content in APPROVED_BAD:
+            entry = progress["texts"][tid][content]
+            entry.update(text="Incomplete answer", pred=None, correct=False)
+            entry["usage"]["truncated"] = True
+        common.write_json(progress_path, progress)
+        common.write_json(source / "state.json", {
+            "status": "incomplete", "training_complete_seeds": [], "started": 1000, "finished": 2430})
+        common.write_json(source / "logs/bank.json",
+                          {"stage": "bank", "returncodes": [1], "timed_out": False})
+        args.recover_from, args.allocation_seconds = source, 84960
+        recovered = study.prepare(args, root)
+        common.verify(recovered)
+        assert len(common.load_tasks(recovered["training_tasks"])) == 68
+        assert recovered["allocation_accounting"]["prior_charged_seconds"] == 1440
+        assert recovered["bank_recovery"]["retained_answers"] == 136
 
 
-def test_full_orchestration_six_pairs_with_real_tiny_workers(tmp_path, monkeypatch):
+@pytest.mark.parametrize("recovery_mode", [False, True])
+def test_full_orchestration_six_pairs_with_real_tiny_workers(tmp_path, monkeypatch, recovery_mode):
     root = tmp_path / "run"
     timings = []
 
@@ -281,6 +311,8 @@ def test_full_orchestration_six_pairs_with_real_tiny_workers(tmp_path, monkeypat
         plan, _ = fake_study(directory, monkeypatch)
         plan.pop("budget")
         plan["bank_reserved"] = plan["reserved"]
+        if recovery_mode:
+            plan["bank_recovery"] = {"policy": "test-existing-frozen-bank"}
         return plan
 
     def execute(commands, deadline, directory, stage):
@@ -317,3 +349,12 @@ def test_full_orchestration_six_pairs_with_real_tiny_workers(tmp_path, monkeypat
     assert [s for s, _ in timings if s.startswith("training")] == [f"training-seed{i}" for i in range(6)]
     assert len([s for s, _ in timings if s.startswith("evaluation")]) == 3
     assert all(deadline <= args.deadline for _, deadline in timings)
+    assert ("bank" in [s for s, _ in timings]) != recovery_mode
+
+
+def test_failed_stage_surfaces_actual_child_error_in_parent_stderr(tmp_path, capsys):
+    (tmp_path / "logs").mkdir()
+    assert not study.batch(
+        [[sys.executable, "-c", "raise ValueError('specific bank quality failure')"]],
+        time.time() + 5, tmp_path, "bank")
+    assert "specific bank quality failure" in capsys.readouterr().err

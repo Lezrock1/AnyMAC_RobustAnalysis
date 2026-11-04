@@ -1,8 +1,19 @@
 #!/usr/bin/env bash
-# Run as one srun step inside a 24-hour, two-A30 salloc allocation.
+# Run as one srun step inside a budget-approved two-A30 salloc allocation.
 set -euo pipefail
 started="$(date +%s)"
-deadline=$((started + 23 * 3600 + 45 * 60))
+allocation_seconds="${TRAINING_ATTACK_ALLOCATION_SECONDS:-86400}"
+[[ "$allocation_seconds" =~ ^[1-9][0-9]*$ ]] \
+  || { echo "TRAINING_ATTACK_ALLOCATION_SECONDS must be a positive integer" >&2; exit 1; }
+prior_seconds=0
+recovery_args=()
+if [[ -n "${TRAINING_ATTACK_RECOVER_FROM:-}" ]]; then
+  prior_seconds=1440
+  recovery_args=(--recover-from "$TRAINING_ATTACK_RECOVER_FROM")
+fi
+((allocation_seconds > 1800 && allocation_seconds + prior_seconds <= 86400)) \
+  || { echo "Total allocation budget exceeded; recovery allows at most 84960 seconds (23:36)" >&2; exit 1; }
+deadline=$((started + allocation_seconds - 900))
 cd "$(dirname "$0")/../.."
 source scripts/ramses/lib.sh
 load_env; load_modules; activate_venv
@@ -37,4 +48,5 @@ for i in 0 1; do
   urls+=("$BASE_URL")
 done
 python -u scripts/training_attack/study.py --results "$RESULTS_DIR" --out "$out" \
-  --urls "${urls[@]}" --threads "$threads" --started "$started" --deadline "$deadline"
+  --urls "${urls[@]}" --threads "$threads" --started "$started" --deadline "$deadline" \
+  --allocation-seconds "$allocation_seconds" "${recovery_args[@]}"

@@ -95,6 +95,8 @@ def report(root):
     verify(plan)
     bank = json.loads(Path(plan["bank"]).read_text())
     result["budget"] = plan["budget"]
+    result["allocation_accounting"] = plan.get("allocation_accounting")
+    result["bank_recovery"] = plan.get("bank_recovery")
     result["bank_quality"] = {content: {
         "n": len(bank["texts"]),
         "accuracy": mean(entries[content]["correct"] for entries in bank["texts"].values()),
@@ -180,6 +182,10 @@ def report(root):
         "The 24 questions are an outcome-independent subset of the already analyzed main tasks, not fresh confirmation.",
         "Task CIs are conditional on these checkpoints; six-seed bootstrap CIs remain imprecise.",
     ]
+    if result["bank_recovery"]:
+        result["notes"].append(
+            "Approved amendment: 68/70 training tasks retained by paired parse/truncation quality; "
+            "136 original texts unchanged. This conditions the estimand on the quality-filtered pool.")
     write_json(root / "summary.json", result)
     return result
 

@@ -16,6 +16,7 @@ from learned import tree_digest, worker_identity
 from llm import OllamaChat
 from report import report
 from train_learned import DATA_REVISION
+from bank_recovery import PRIOR_ALLOCATION_SECONDS, application_deadline, recover
 
 HERE = Path(__file__).resolve().parent
 
@@ -62,6 +63,12 @@ def batch(commands, deadline, root, stage):
     ok = not timed_out and all(p.returncode == 0 for p in processes)
     print(f"{stage}: {'complete' if ok else 'FAILED'}; "
           f"codes={record['returncodes']}; timeout={timed_out}", flush=True)
+    if not ok:
+        for i, process in enumerate(processes):
+            if process.returncode:
+                path = root / "logs" / f"{stage}-{i}.log"
+                print(f"--- {path} (last 20 lines) ---\n"
+                      + "\n".join(path.read_text().splitlines()[-20:]), file=sys.stderr, flush=True)
     return ok
 
 
@@ -122,6 +129,12 @@ def prepare(args, root):
             "assignment": "training arms swap GPUs by seed parity; both evaluated together on one GPU",
             "evaluation": "24 frozen main questions, honest/bare adjacent, 4 identical-router-RNG honest repeats",
             "performance_tolerance": 0.10}
+    plan["allocation_accounting"] = {
+        "current_seconds": args.allocation_seconds,
+        "prior_charged_seconds": PRIOR_ALLOCATION_SECONDS if args.recover_from else 0,
+        "total_limit_seconds": 86400}
+    if args.recover_from:
+        recover(plan, args.recover_from)
     return plan
 
 
@@ -146,13 +159,14 @@ def run(args):
     try:
         plan = prepare(args, root)
         preflight_deadline = min(args.deadline - RESERVE_S, time.time() + 7200)
-        command = [sys.executable, str(HERE.parent / "compare/trust.py"),
-                   "--tasks", plan["training_tasks"], "--reserved", *plan["bank_reserved"],
-                   "--out", plan["bank"], "--role", ROLE, "--url", args.urls[0],
-                   "--model", args.model, "--threads", str(args.threads)]
-        if not batch([command], preflight_deadline, root, "bank"):
-            state["failures"].append("bank generation failed or exceeded the two-hour preflight window")
-            return 1
+        if "bank_recovery" not in plan:
+            command = [sys.executable, str(HERE.parent / "compare/trust.py"),
+                       "--tasks", plan["training_tasks"], "--reserved", *plan["bank_reserved"],
+                       "--out", plan["bank"], "--role", ROLE, "--url", args.urls[0],
+                       "--model", args.model, "--threads", str(args.threads)]
+            if not batch([command], preflight_deadline, root, "bank"):
+                state["failures"].append("bank generation failed or exceeded the two-hour preflight window")
+                return 1
         plan["inputs"][plan["bank"]] = digest(plan["bank"])
         setup_path = root / "preflight.json"
         write_json(setup_path, plan)
@@ -222,10 +236,17 @@ def main():
     parser.add_argument("--threads", type=int, default=8)
     parser.add_argument("--started", type=float, required=True)
     parser.add_argument("--deadline", type=float, required=True)
+    parser.add_argument("--recover-from", type=Path)
+    parser.add_argument("--allocation-seconds", type=int, default=86400)
     args = parser.parse_args()
+    try:
+        latest_deadline = application_deadline(args.started, args.allocation_seconds, bool(args.recover_from))
+    except ValueError as error:
+        parser.error(str(error))
     if (not all(math.isfinite(value) for value in (args.started, args.deadline))
             or args.started > time.time() or args.deadline <= time.time()
             or args.deadline - args.started > 24 * 3600
+            or args.deadline > latest_deadline
             or args.threads < 1 or args.urls[0] == args.urls[1]):
         parser.error("need distinct servers, positive threads and an unexpired <=24h total deadline")
     raise SystemExit(run(args))

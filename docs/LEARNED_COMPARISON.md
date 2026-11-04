@@ -501,6 +501,15 @@ unvollstaendige Seeds werden berichtet. Kein Nachweis der 1000-Trajektorien-
 Reproduktion, des Darstellungsfaktors oder eines Trainingspopulations-Nulls.
 Details und Ausfuehrung: [Kurztrainingsstudie](../scripts/training_attack/README.md).
 
+**Freigegebene Fortsetzung 04.11.2026:** Die erste Bankgenerierung scheiterte
+vor jedem Training an zwei abgeschnittenen Antworten (validation/30 helpful,
+validation/40 ordinary). Beide Aufgaben werden paarweise aus beiden Armen
+entfernt; 136 unveraenderte Texte auf 68 Aufgaben bleiben. Keine
+Korrektheitsselektion oder Neugenerierung. Originalqualitaet und Ausschluesse
+werden auditiert; Aussagen gelten fuer diesen qualitaetsgefilterten Pool.
+Der abgebrochene Lauf wird mit 24 Minuten belastet, die naechste Zwei-A30-
+Allokation auf 23:36 begrenzt, ohne erneute volle 24-h-Freigabe.
+
 Leitfrage: Erzeugen hilfreichere oder kompetenzbetont dargestellte Workerantworten
 eine gelernte Abhaengigkeit, die ein spaeterer Verhaltenswechsel ausnutzen kann?
 
